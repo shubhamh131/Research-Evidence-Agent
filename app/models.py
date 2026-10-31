@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from typing import Literal
+from enum import Enum
 
 
 class SubQuestion(BaseModel):
@@ -20,4 +21,38 @@ class ResearchPlan(BaseModel):
     )
     sub_questions: list[SubQuestion] = Field(
         description="3-5 sub-questions that together cover the original question. At least one must have stance 'opposing'."
+    )
+
+
+class SourcePlatform(str, Enum):
+    """Supported literature repositories and databases."""
+
+    ARXIV = "arxiv"
+    SEMANTIC_SCHOLAR = "semantic_scholar"
+    GOOGLE_SCHOLAR = "google_scholar"
+    PUBMED = "pubmed"
+    IEEE = "ieee"
+    SCOPUS = "scopus"
+    OTHER = "other"
+
+
+class Paper(BaseModel):
+    title: str
+    abstract: str = Field(description="The structured abstract component of the paper.")
+    authors: list[str] = Field(
+        description="The names of the authors in order of contribution."
+    )
+    year: int | None = Field(
+        default=None, description="Publication year, or None if unknown."
+    )
+    url: HttpUrl = Field(
+        description="The primary web link to the paper (e.g., publisher page, arXiv page)."
+    )
+    source: SourcePlatform = Field(
+        description="The repository or index where the metadata was sourced from."
+    )
+    arxiv_id: str | None = Field(
+        default=None,
+        description="The unique arXiv identifier (e.g., '1706.03762').",
+        examples=["1706.03762", "hep-th/0308182"],
     )
