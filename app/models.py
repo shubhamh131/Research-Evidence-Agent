@@ -86,3 +86,11 @@ class ScreenedPaper(BaseModel):
     relevance: int
     direction: str
     reason: str
+
+
+class Chunk(BaseModel):
+    arxiv_id: str = Field(description="Id of the paper this chunk comes from.")
+    section: str = Field(
+        description="Section heading the chunk belongs to, or 'Unknown'."
+    )
+    text: str = Field(description="The chunk text, about 200 words.")
