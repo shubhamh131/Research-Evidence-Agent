@@ -65,9 +65,14 @@ class PaperScore(BaseModel):
     relevance: int = Field(
         ge=0,
         le=5,
-        description="0 = unrelated, 5 = directly compares or tests the question's claim with evidence.",
+        description="0 = unrelated, 5 = directly compares both sides of the question and reports results.",
     )
-    reason: str = Field(description="One short sentence explaining the score.")
+    direction: Literal["supports", "contradicts", "mixed", "unclear"] = Field(
+        description="Relative to the question's claim: 'supports' if the paper's findings agree with it, 'contradicts' if they go against it, 'mixed' if both, 'unclear' if no clear finding."
+    )
+    reason: str = Field(
+        description="One short sentence explaining the score and direction."
+    )
 
 
 class BatchScores(BaseModel):
@@ -79,4 +84,5 @@ class BatchScores(BaseModel):
 class ScreenedPaper(BaseModel):
     paper: Paper
     relevance: int
+    direction: str
     reason: str
