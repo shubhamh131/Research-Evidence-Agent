@@ -56,3 +56,27 @@ class Paper(BaseModel):
         description="The unique arXiv identifier (e.g., '1706.03762').",
         examples=["1706.03762", "hep-th/0308182"],
     )
+
+
+class PaperScore(BaseModel):
+    index: int = Field(
+        description="The number shown in square brackets before the paper."
+    )
+    relevance: int = Field(
+        ge=0,
+        le=5,
+        description="0 = unrelated, 5 = directly compares or tests the question's claim with evidence.",
+    )
+    reason: str = Field(description="One short sentence explaining the score.")
+
+
+class BatchScores(BaseModel):
+    scores: list[PaperScore] = Field(
+        description="One score for every paper in the batch."
+    )
+
+
+class ScreenedPaper(BaseModel):
+    paper: Paper
+    relevance: int
+    reason: str

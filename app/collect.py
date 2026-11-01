@@ -1,7 +1,7 @@
 import re
 
 from app.models import Paper, ResearchPlan
-from app.search import search_arxiv, safe_search_s2
+from app.search import search_arxiv
 
 
 def _key(paper: Paper) -> str:

@@ -1,38 +1,40 @@
 import arxiv
 import httpx
+import re
 
 from app.models import Paper, SourcePlatform
 
-S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+STOPWORDS = {
+    "vs",
+    "versus",
+    "and",
+    "or",
+    "the",
+    "of",
+    "in",
+    "for",
+    "a",
+    "an",
+    "on",
+    "with",
+}
+ML_CATEGORIES = "(cat:cs.LG OR cat:cs.CL OR cat:cs.AI OR cat:stat.ML)"
 
-import os
-import time
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-def _get_with_retry(url: str, params: dict, retries: int = 4) -> httpx.Response:
-    headers = {}
-    key = os.getenv("S2_API_KEY")
-    if key:
-        headers["x-api-key"] = key
-
-    for attempt in range(retries):
-        response = httpx.get(url, params=params, headers=headers, timeout=20)
-        if response.status_code != 429:
-            response.raise_for_status()
-            return response
-        time.sleep(2**attempt)
-
-    response.raise_for_status()
+def build_arxiv_query(query: str) -> str:
+    words = [
+        w for w in re.findall(r"[A-Za-z0-9]+", query) if w.lower() not in STOPWORDS
+    ]
+    terms = " AND ".join(f"all:{w}" for w in words)
+    return f"{ML_CATEGORIES} AND {terms}"
 
 
 def search_arxiv(query: str, max_results: int = 5) -> list[Paper]:
     client = arxiv.Client()
     search = arxiv.Search(
-        query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance
+        query=build_arxiv_query(query),
+        max_results=max_results,
+        sort_by=arxiv.SortCriterion.Relevance,
     )
 
     papers = []
@@ -49,41 +51,3 @@ def search_arxiv(query: str, max_results: int = 5) -> list[Paper]:
         papers.append(paper)
 
     return papers
-
-
-def search_semantic_scholar(query: str, limit: int = 5) -> list[Paper]:
-    response = httpx.get(
-        response=_get_with_retry(
-            S2_URL,
-            params={
-                "query": query,
-                "limit": limit,
-                "fields": "title,abstract,authors,year,url,externalIds",
-            },
-        )
-    )
-    response.raise_for_status()
-    items = response.json().get("data", [])
-
-    papers = []
-    for item in items:
-        paper = Paper(
-            title=item["title"],
-            abstract=item.get("abstract") or "",
-            authors=[a["name"] for a in item["authors"]],
-            year=item.get("year"),
-            url=item["url"],
-            source=SourcePlatform.SEMANTIC_SCHOLAR,
-            arxiv_id=(item.get("externalIds") or {}).get("ArXiv"),
-        )
-        papers.append(paper)
-
-    return papers
-
-
-def safe_search_s2(query: str, limit: int = 5) -> list[Paper]:
-    try:
-        return search_semantic_scholar(query, limit)
-    except httpx.HTTPError as e:
-        print(f"Semantic Scholar failed, continuing without it: {e}")
-        return []
