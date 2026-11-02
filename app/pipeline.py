@@ -1,5 +1,6 @@
 import time
 
+
 from app.collect import collect_papers
 from app.planner import make_plan
 from app.prefilter import embed_filter
@@ -22,8 +23,8 @@ def run_pipeline(question: str, top_k: int = 5):
     times["embed"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    top = screen_papers(question, shortlist, top_k=top_k, batch_size=15)
+    top = screen_papers(question, shortlist, top_k=top_k, batch_size=8)
     times["screen"] = time.perf_counter() - t
 
     counts = {"collected": len(papers), "shortlist": len(shortlist), "final": len(top)}
-    return top, times, counts
+    return top, times, counts, plan

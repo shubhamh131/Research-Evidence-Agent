@@ -18,11 +18,15 @@ Score each paper from 0 to 5 using only its title and abstract:
 Give a score for every paper in the batch. Be strict: a paper that only mentions the topic scores 2 or lower.
 """
 
-llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
+llm = ChatGroq(
+    model="openai/gpt-oss-20b", temperature=0, max_retries=5, max_tokens=4096
+)
 prompt = ChatPromptTemplate.from_messages(
     [("system", SYSTEM_TEXT), ("human", "Question: {question}\n\nPapers:\n{papers}")]
 )
-screener = prompt | llm.with_structured_output(BatchScores)
+screener = (prompt | llm.with_structured_output(BatchScores)).with_retry(
+    stop_after_attempt=3
+)
 
 
 def screen_papers(
@@ -39,7 +43,10 @@ def screen_papers(
             if 0 <= s.index < len(batch):
                 scored.append(
                     ScreenedPaper(
-                        paper=batch[s.index], relevance=s.relevance, reason=s.reason
+                        paper=batch[s.index],
+                        relevance=s.relevance,
+                        direction=s.direction,
+                        reason=s.reason,
                     )
                 )
         time.sleep(2)

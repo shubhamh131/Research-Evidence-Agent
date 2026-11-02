@@ -37,9 +37,15 @@ def split_sections(text: str) -> list[tuple[str, str]]:
             heading = f"{line} {lines[i + 1]}"
             i += 1
 
-        # new: reject a top-level heading whose number doesn't go up
-        if heading and "." not in heading.split()[0]:
-            if int(heading.split()[0]) <= _top_level(current_section):
+        if heading:
+            parts = heading.split()[0].split(".")
+            top = int(parts[0])
+            cur = _top_level(current_section)
+            if len(parts) == 1:
+                bad = top != cur + 1
+            else:
+                bad = top not in (cur, cur + 1) or int(parts[1]) == 0
+            if bad:
                 heading = None
                 if NUM_ONLY.match(line):
                     i -= 1
@@ -76,7 +82,11 @@ def make_chunks(
 
         for start in range(0, len(words), step):
             piece = words[start : start + size]
-            chunks.append(Chunk(arxiv_id=arxiv_id, section=name, text=" ".join(piece)))
+            numeric = sum(any(ch.isdigit() for ch in w) for w in piece)
+            if numeric / len(piece) < 0.3 and "@" not in " ".join(piece):
+                chunks.append(
+                    Chunk(arxiv_id=arxiv_id, section=name, text=" ".join(piece))
+                )
             if start + size >= len(words):
                 break
 

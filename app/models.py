@@ -70,9 +70,7 @@ class PaperScore(BaseModel):
     direction: Literal["supports", "contradicts", "mixed", "unclear"] = Field(
         description="Relative to the question's claim: 'supports' if the paper's findings agree with it, 'contradicts' if they go against it, 'mixed' if both, 'unclear' if no clear finding."
     )
-    reason: str = Field(
-        description="One short sentence explaining the score and direction."
-    )
+    reason: str = Field(description="Max 12 words explaining the score and direction.")
 
 
 class BatchScores(BaseModel):
