@@ -1,0 +1,2184 @@
+Preprint
+LORA-FA: MEMORY-EFFICIENT LOW-RANK ADAPTA-
+TION FOR LARGE LANGUAGE MODELS FINE-TUNING
+Longteng Zhang1∗, Lin Zhang2∗, Shaohuai Shi3†, Xiaowen Chu1,2†, Bo Li2
+1The Hong Kong University of Science and Technology (Guangzhou),
+2Hong Kong University of Science and Technology,
+3Harbin Institute of Technology, Shenzhen
+lzhang330@connect.hkust-gz.edu.cn, lzhangbv@connect.ust.hk,
+shaohuais@hit.edu.cn, xwchu@ust.hk, bli@cse.ust.hk
+ABSTRACT
+Fine-tuning large language models (LLMs) is crucial for improving their perfor-
+mance on downstream tasks, but full-parameter fine-tuning (Full-FT) is computa-
+tionally expensive and memory-intensive. Parameter-efficient fine-tuning (PEFT)
+methods, such as Low-Rank Adaptation (LoRA), address this by optimizing only a
+small subset of parameters. However, LoRA may underperform Full-FT in certain
+scenarios due to the intrinsic limitations of its low-rank gradients. In this work, we
+reveal an asymmetric, collapsible structure in LoRA’s update: the low-rank modifi-
+cation to W can be reformulated as a single-layer linear regression, implying that
+one of the LoRA factors can be frozen without sacrificing expressivity. Leveraging
+this insight, we introduce LoRA-FA, which freezes the projection-down matrix A
+and trains only the projection-up matrix B. We further close the gap to Full-FT by
+deriving closed-form gradient corrections that minimize the discrepancy between
+the induced low-rank gradient and the full gradient. Through extensive experiments
+on diverse benchmarks, including GLUE, GSM8K, MT-Bench, and HumanEval,
+we demonstrate that LoRA-FA consistently achieves comparable performance to
+existing PEFT methods and Full-FT. Experiments on system efficiency show that
+LoRA-FA significantly reduces activation memory consumption and computational
+workload in fine-tuning. Our code is available at link.
+1
+INTRODUCTION
+Large language models (LLMs) have become a cornerstone of natural language processing (Brown
+et al., 2020; Touvron et al., 2023a; OpenAI, 2023; Anil et al., 2023), and fine-tuning pre-trained
+LLMs has been shown to be very effective to improve their performance on various downstream
+tasks (Liu et al., 2019; Wei et al., 2021) and to enable them to align with human intents (Ouyang et al.,
+2022; Bai et al., 2022). However, fine-tuning LLMs via full-parameter is prohibitively expensive,
+for example, fine-tuning a Llama3-70B (Dubey & et al., 2024) model with AdamW (Loshchilov &
+Hutter, 2017) requires more than 1 TB of GPU memory to store model parameters, gradients, and
+optimizer states (Rajbhandari et al., 2020). To reduce the memory cost of full-parameter fine-tuning,
+parameter-efficient fine-tuning (PEFT) methods have been proposed to update only a small fraction
+of parameters, such as adapter weights (Houlsby et al., 2019; Hu et al., 2022) and prompt weights (Li
+& Liang, 2021; Lester et al., 2021). Among these methods, low-rank adaptation (LoRA) (Hu et al.,
+2022) has been shown to achieve comparable performance to full-parameter fine-tuning (Full-FT),
+and has been widely used in many applications (Dettmers et al., 2023).
+Specifically, LoRA adds a parallel low-rank adapter alongside the weight of a linear layer, as shown
+in Figure 1(b), where W is the pre-trained weight, A and B are low-rank weights. Because LoRA
+freezes W and only updates smaller matrices A and B, its memory overhead for trainable parameters
+and corresponding gradients and optimizer states can be largely reduced, compared to Full-FT as
+shown in Figure 1(a), which can be viewed as updating W and freezing A and B.
+∗Equal contribution.
+†Corresponding author.
+1
+arXiv:2308.03303v3  [cs.CL]  9 May 2026
+
+Preprint
+W
+X
+(a) Full Parameter FT
+W
+B
+A
+X
+(b) LoRA
+W
+B
+A
+X
+(c) LoRA-FA
+trainable
+frozen
+Figure 1: The illustration of (a) full-parameter fine-tuning (Full-FT), (b) LoRA, and (c) LoRA-FA.
+Although LoRA demonstrates high efficiency, its fine-tuning performance remains inferior to Full-
+FT (B¨uy¨ukaky¨uz, 2024; Meng et al., 2024; Wang et al., 2024c). Recent studies have sought to
+bridge this gap by either improving the initialization of the weights A and B or approximating the
+gradients of Full-FT. However, existing gradient approximation based studies generally overlook the
+asymmetric contributions of A and B, leaving room for potentially separable optimization strategies.
+In this work, we identify the asymmetric nature of A and B in updating W: the low-rank update of
+W in LoRA can be expressed as performing linear regression whose depth collapses to a single layer.
+Building on this insight, our objective is to approximate the gradient of Full-FT by updating only A or
+B (referred to as LoRA-FA and LoRA-FB, respectively). Formally, given gA and gB as the gradient
+of A and B respectively, this involves solving mingA ∥ˆg−g∥2
+F and mingB ∥ˆg−g∥2
+F , where ˆg denotes
+the gradient in updating W when A or B is fixed. Through theoretical analysis, we demonstrate that
+both optimization problems yield independent closed-form solutions, illustrating that LoRA-FA and
+LoRA-FB can independently approximate the gradients of Full-FT with strategic gradient adjustments.
+Furthermore, we analyze the memory consumption of Full-FT and LoRA during training, revealing
+that LoRA-FA significantly reduces memory usage for activations compared to both LoRA and
+LoRA-FB. This positions LoRA-FA as an efficient and effective fine-tuning method.
+Our main contributions are summarized as follows: (i) We first identify how A and B can be collapsed
+in updating W, showing that the low-rank update of W in LoRA can be expressed as a single-layer
+linear regression. (ii) We propose LoRA-FA, an efficient and effective fine-tuning approach. By
+adjusting only a subset of gradients, LoRA-FA not only achieves competitive performance but also
+significantly reduces activation memory consumption and computational workload compared to other
+LoRA variants. (iii) We conduct extensive experiments, showing that LoRA-FA outperforms other
+PEFT methods in both fine-tuning performance and system efficiency across various models and
+datasets.
+2
+RELATED WORK
+Low-Rank Adaptation. LoRA (Hu et al., 2022) is a widely adopted Parameter-Efficient Fine-tuning
+technique that incorporates low-rank adapters in parallel with the frozen layers of a model. This
+design yields substantial savings in optimizer state and gradient memory relative to full-parameter
+fine-tuning. Subsequent work extends LoRA along several axes. For instance, QLoRA (Dettmers
+et al., 2023) adapts LoRA for fine-tuning quantized models. Beyond quantization, a line of work
+modifies the learning dynamics of LoRA modules, e.g., altering learning rates for A versus B (Hayou
+et al., 2024), or sharing factors across layers (Kopiczko et al., 2024).
+Asymmetric LoRA. Asymmetric LoRA approaches recognize that A and B contribute differently
+to the effective update and, consequently, admit different optimization and system properties. As
+shown by (Zhu et al., 2024), there is formal evidence that tuning A has limited importance when
+trying to match a desired output compared to tuning B. HydraLoRA (Tian et al., 2024) proposes
+using multiple parallel LoRA B modules with a single A module to improve performance. Based on
+this, LoRI (Zhang et al., 2025) freezes the A matrix and utilizes multiple B modules for multi-task
+2
+
+Preprint
+Table 1: Memory complexity comparison among full fine-tune (FT), LoRA, LoRA-FA and LoRA-FB
+for a single linear layer with 16-bit mixed-precision training. # TPs is the number of trainable
+parameters. d, r, b, s are hidden dimension, LoRA rank, batch size, and sequence length, respectively.
+We calculate the weight (W), gradient (G), optimizer (O), activation (A) in the unit of Bytes.
+Method
+# TPs
+W
+G
+O
+A
+Full-FT
+d2
+2d2
+2d2 4d2
+2bsd
+LoRA
+2dr
+2(d2 + 2dr) 4dr 8dr 2bsd + 2bsr
+LoRA-FB
+dr
+2(d2 + 2dr) 2dr 4dr
+2bsd
+LoRA-FA
+dr
+2(d2 + 2dr) 2dr 4dr
+2bsr
+adaptation. Notably, LoRI states that, in the limiting case of a single task and zero sparsity, it reduces
+to standard LoRA-FA without gradient approximation. In practice, asymmetric LoRA techniques are
+orthogonal to LoRA-FA, meaning they can be combined to further improve model adaptability.
+Gradient approximation for LoRA. A complementary body of work aims to close the performance
+gap between LoRA and full fine-tuning by improving the low-rank gradient estimate rather than
+modifying the module topology. LoRA-GA (Wang et al., 2024a) approximates the optimization
+trajectory of LoRA’s first update step with that of full fine-tuning, and LoRA-Pro (Wang et al., 2024c)
+enhances the low-rank gradient in LoRA by approximating it with the full gradient. GoRA (He
+et al., 2025) leverages gradient information during training to dynamically assign optimal ranks and
+initialize low-rank adapter weights. LoRA Silver Bullet (Ponkshe et al., 2025) further approximates
+full fine-tuning within low-rank subspaces through a carefully designed initialization strategy.
+Despite strong empirical adoption, existing LoRA variants are limited by the low-rank update
+subspace and by the need to retain forward activations for backpropagation through both A and B,
+which can dominate memory use and computational workload in long-context or large-batch regimes.
+LoRA-FA unifies the two lines above. It leverages the structural asymmetry of the A and B roles to
+freeze A, thereby collapsing depth and removing the need to store large intermediate activations. It
+also brings the gradient approximation perspective to bear by supplying a closed-form correction that
+aligns the induced low-rank update with the full gradient.
+3
+BACKGROUND AND MOTIVATION
+Low-Rank Adaptation (LoRA) introduces a low-rank adapter alongside the weights of a linear layer,
+as described by the equation:
+Y = XW0 + α
+r XAB,
+(1)
+where W0 ∈Rdin×dout represents the pre-trained weight matrix, din is the input dimensionality, and
+dout is the output dimensionality. For simplicity, the bias term is omitted as it does not affect the
+analysis. Here, X ∈Rb×s×din and Y ∈Rb×s×dout denote the input and output tensors, respectively,
+where b is the batch size and s is the sequence length. For the LoRA-specific components, A ∈Rdin×r
+and B ∈Rr×dout are the projection-down and projection-up weight matrices, respectively, with r
+being the rank and α > 0 a scaling hyperparameter. The factor α
+r serves as the scaling coefficient of
+the product AB.
+From Equation 1, the change in W can be derived as follows:
+dW = α
+r (dA B + A dB),
+(2)
+where W = W0 + α
+r AB, dA and dB are given by their respective negative gradients. By the chain
+rule, the gradients of A and B in LoRA can be derived as:
+gA
+LoRA = ∂L
+∂W
+∂W
+∂A = α
+r gBT , gB
+LoRA = ∂L
+∂W
+∂W
+∂B = α
+r AT g
+(3)
+where L and g denote the loss function and the gradient of W, respectively. Recent studies Wang et al.
+(2024c); Meng et al. (2024) have shown that the rank of the gradient subspace for LoRA compared to
+3
+
+Preprint
+full fine-tuning (Full-FT) (i.e., 2r ≪d) is a key factor contributing to the performance gap between
+these approaches. In essence, LoRA leverages a low-rank gradient, ˆgLoRA = α
+r (gA
+LoRAB + AgB
+LoRA),
+which combines the gradients of A and B to update W. To bridge the performance gap between
+LoRA and Full-FT, studies such as Wang et al. (2024a;c) have attempted to approximate the full
+gradient using the aforementioned low-rank gradient. Specifically, the optimization objective is to
+minimize ∥ˆg −g∥2
+F , where g represents the full gradient, and ˆg denotes the low-rank gradient, which,
+in the case of LoRA, corresponds to ˆgLoRA.
+However, we have identified a critical collapsing behavior in the gradients of A and B during the
+training process. In LoRA optimization, where ∆W = AB, this formulation intuitively implies that
+the updates to W are restricted to the r-dimensional subspace S spanned by A and B. Furthermore,
+if there exists another matrix pair spanning the same subspace S, either A or B can be fixed, thereby
+reducing the trainable parameters to only a single component. To further elucidate this, we introduce
+Theorem 3.1, which shows that LoRA’s update of W can be expressed as a low-rank update achieved
+by a single trainable linear adapter.
+Theorem 3.1. Consider the optimization process in LoRA, where ∆W = AB. Let A0 denote the
+initial value of A, and suppose A∗∈Rm×r and B∗∈Rr×n are the optimal solutions for A and B
+in the LoRA optimization. Assume that both A0 and A∗are full-rank matrices. Then, the low-rank
+update of W in LoRA can be expressed as a single-layer linear regression, formulated as:
+∆W = A∗B∗≈A0B′∗
+(4)
+where B′∗has the same dimensions as B, i.e., B′∗∈Rr×n.
+Proof. See Appendix A.1.
+To summarize, since stacked linear becomes linear regression and the depth collapses to just one
+layer, we have proved that the expressiveness of LoRA is equivalent to that of LoRA with only one
+side adapter is trainable. Furthermore, in the next section, we prove that when A or B is frozen, such
+low-rank gradients can be strategically adjusted to approximate the gradients of Full-FT by solving
+an optimization problem. Moreover, this optimization problem has a closed-form optimal solution.
+4
+BRIDGING THE PERFORMANCE GAP
+In this section, we first focus on bridging the performance gap between LoRA-FA (i.e., freezing A and
+fine-tuning B) and Full-FT. Unlike standard LoRA, as described in Equation 3 and Equation2, LoRA-
+FA employs a low-rank gradient, ˆgLoRA-FA = α
+r AgB, to update W. To mitigate the performance gap,
+we aim to strategically adjust gB, the gradient of matrix B, to minimize the discrepancy between
+ˆgLoRA-FA and the full gradient g. This leads to the following optimization problem:
+min
+gB ∥ˆgLoRA-FA −g∥2
+F ,
+s.t.
+ˆgLoRA-FA = α
+r AgB,
+dL ≤0,
+(5)
+where ∥· ∥F denotes the Frobenius norm, and dL represents the change in the loss function when
+updating with the gradient gB. The goal is to minimize the gradient discrepancy while ensuring that
+the loss function is non-increasing. We demonstrate that this optimization problem admits an optimal
+closed-form solution, as shown in Theorem 4.1.
+Theorem 4.1. Let A ∈Rm×r be a fixed full-rank matrix, g ∈Rm×n denote the gradient of the
+loss with respect to W, and gB ∈Rr×n represent the gradient with respect to B in LoRA-FA. The
+objective function in Equation 5 is minimized by
+gB =
+ r
+α
+2
+(A⊤A)−1gB
+LoRA-FA,
+(6)
+where ˆgLoRA-FA = α
+r AgB. The solution also satisfies dL ≤0.
+4
+
+Preprint
+Proof. See Appendix A.2.
+More importantly, the optimal closed-form solution reveals that the gradient adjustment in LoRA-FA
+depends solely on A and gB
+LoRA-FA. This implies that the initialization of B imposes no restrictions,
+and gB can be directly adjusted based on the original gradient gB
+LoRA-FA. We also extend this analysis
+to LoRA-FB (i.e., freezing B and fine-tuning A), which exhibits similar properties. Please refer to
+Appendix A.3 for more details.
+5
+LORA-FA: LORA BY FIXING A
+In this section, we present LoRA-FA, a novel fine-tuning method that is both efficient and effective.
+LoRA-FA can bridge the performance gap with Full-FT.
+Building upon previous analysis, it has
+been established that, the low-rank update of W in LoRA can be expressed as achieved by a single
+trainable linear adapter. (Theorem 3.1). Furthermore, it has been demonstrated that the gradient of
+B or A can be strategically modified to align the performance of LoRA-FA with that of Full-FT,
+achieving superior results compared to standard LoRA (Theorem 4.1). Next, we provide a detailed
+analysis of the system efficiency of LoRA-FA and LoRA-FB.
+LoRA-FA is more memory efficient.
+In LoRA-FA, both the base weight W and the adapter
+weight A are frozen, requiring only the computation of the gradient of B. This results in the need
+to store only the much smaller intermediate activation XA during the feed-forward pass, thereby
+eliminating the memory overhead of storing X as required in standard LoRA. In contrast, LoRA-FB
+freezes the adapter weight B, necessitating the storage of the full activation of X to compute the
+gradient of A. To analyze this more formally, assume X ∈Rb×d, W ∈Rd×d, A ∈Rd×r, and
+B ∈Rr×d. As shown in Figure 1, the projection-down weight A maps the d-dimensional input X
+to the r-dimensional intermediate activation XA ∈Rb×r. Since r ≪d, storing the activation XA
+in LoRA-FA is significantly more memory-efficient than storing the full activation X in LoRA-FB.
+Consequently, the memory requirements for storing activations are greatly reduced in LoRA-FA. A
+comparative analysis of the memory complexity of low-rank modules is provided in Table 1.
+LoRA-FA can achieve greater computational efficiency through kernel-level optimization.
+Consider the gradient computation of B in Equation 4.1. Since matrix A remains fixed throughout
+training in LoRA-FA, the inverse of AT A can be precomputed once during model initialization
+and reused thereafter. Given that AT A has dimensions r × r, and r is typically very small, the
+memory required to store AT A is negligible, approximately 8 KB when r = 64. Moreover, revisiting
+Equation 4.1, the gradient gB requires only the current gradient of B for its computation, implying
+that the computational graph remains unchanged. This structural property naturally facilitates the
+application of operator fusion techniques, thereby enabling more efficient computation within the
+training pipeline.
+6
+EXPERIMENTS
+We conduct extensive experiments to evaluate the effectiveness of LoRA-FA across a range of
+benchmarks, including GLUE (Wang et al., 2019), MT-Bench (Bai et al., 2024), GSM8K (Cobbe
+et al., 2021), and HumanEval (Chen & Jerry Tworek, 2021). First, we compare LoRA-FA with
+several other PEFT methods by fine-tuning RoBERTa-base/large on the GLUE benchmark. This
+provides a preliminary assessment of LoRA-FA’s effectiveness in fine-tuning encoder-only models.
+Subsequently, we focus on supervised fine-tuning (SFT) of state-of-the-art LLMs in the MATH,
+CODE, and CHAT domains, comparing the performance of LoRA-FA against its competitors on
+benchmarks like GSM8K, HumanEval, and MT-Bench. Additionally, we examine the system
+efficiency of various methods during fine-tuning, demonstrating that LoRA-FA significantly reduces
+activation memory usage while maintaining or even slightly enhancing Model FLOPS Utilization
+(MFU), unlike other methods that exhibit a decline in MFU. The models, datasets, metrics, and
+baselines used in our experiments are detailed below, with further experimental settings provided in
+Appendix D due to space constraints.
+5
+
+Preprint
+Models. We fine-tune a diverse selection of LLMs, including encoder-only models such as RoBERTa-
+base/large (Liu et al., 2019) for natural language understanding (NLU) tasks, and decoder-only models
+such as Llama2-7B (Touvron et al., 2023b), Llama3-8B (Dubey & et al., 2024), Qwen3-8B (Yang
+& Anfeng Li, 2025), and Mixture-of-Expert (MoE) model such as DeepSeek-v2-lite (DeepSeek-AI
+et al., 2024) for natural language generation (NLG) tasks.
+Datasets. In alignment with prior studies (Wang et al., 2024a;c), our experiments span a variety
+of datasets tailored to specific task types. For NLU tasks, we use the GLUE (Wang et al., 2019)
+benchmark. For SFT in domain-specific contexts, we utilize MetaMath (Yu et al., 2023) for the
+MATH domain, CodeFeedback (Zheng et al., 2025) for the CODE domain, and WizardLM (Xu et al.,
+2024) for the CHAT domain.
+Evaluation Metrics. Following the evaluation protocols of prior works such as QLoRA (Dettmers
+et al., 2023), LLM-Adapters (Hu et al., 2023), and LoRA-Pro (Wang et al., 2024c), we primarily
+assess the zero-shot performance of fine-tuned LLMs across various benchmarks. For GSM8K,
+accuracy is reported as the evaluation metric. For MT-Bench, GPT-4 (OpenAI, 2023) is employed
+to score the quality of the model’s responses, with the first-turn score reported as the metric. For
+HumanEval, we report the PASS@1 metric to evaluate code generation performance.
+Baselines. We compare the performance of LoRA-FA against Full-FT, the standard LoRA, and
+several recent PEFT methods, including LoRA-QV, QLoRA (Dettmers et al., 2023), Vector-based
+Adaptation (VeRA) (Kopiczko et al., 2024), PiSSA (Meng et al., 2024), LoRA+ (Hayou et al.,
+2024), AdaLoRA (Zhang et al., 2023b), DoRA (Liu et al., 2024), LoRA-GA (Wang et al., 2024a),
+LoRA-Pro (Wang et al., 2024c). Please refer to Appendix D for detailed introduction of baselines.
+6.1
+PERFORMANCE ON GLUE BENCHMARKS
+Table 2: Performance comparison on the GLUE benchmark. The batch sizes for fine-tuning RoBERTa-
+base and RoBERTa-large are 64 and 32, respectively. The LoRA rank is set to 8 by default, and
+the sequence length is 128 for both models. “Avg.” denotes the average result across all tasks. The
+best and second-best results are marked in bold and underline, respectively. We report the average
+performance and its standard deviation over three independent runs for each task.
+GLUE
+Model Method
+SST2
+MRPC
+QNLI
+COLA
+RTE
+STSB
+Avg.
+RoBERTa-base
+Full-FT
+94.7±0.3 90.0±0.2 79.1±0.2
+92.3±0.1
+77.1±0.3 90.7±0.2
+87.3
+LoRA
+94.0±0.1 83.3±0.0
+69.0±0.4
+81.6±0.1
+74.8±0.3
+88.8±0.3
+81.9
+LoRA-QV 95.0±0.2 89.6±0.3
+70.2±0.1
+93.3±0.1
+76.8±0.4
+91.4±0.4
+86.1
+QLoRA
+92.2±0.2 82.9±0.2
+65.0±0.1
+82.4±0.3
+56.1±0.2
+83.2±0.3
+77.1
+VeRA
+92.5±0.4 89.4±0.4
+67.2±0.3
+91.7±0.0
+76.9±0.1
+89.3±0.1
+84.5
+AdaLoRA
+93.5±0.0 82.3±0.3
+70.1±0.3
+92.0±0.2
+73.1±0.2
+87.1±0.1
+83.0
+LoRA+
+93.9±0.4 85.2±0.0
+75.1±0.2
+93.1±0.4 77.0±0.1
+87.1±0.4
+85.2
+PiSSA
+94.3±0.3 84.7±0.3
+73.0±0.0
+92.9±0.1
+77.0±0.4
+89.9±0.4
+85.3
+DoRA
+94.0±0.3 83.6±0.3
+71.1±0.2
+92.9±0.2
+75.1±0.3
+87.2±0.2
+84.0
+LoRA-GA 94.3±0.0 87.8±0.2
+80.0±0.1
+93.1±0.4 77.0±0.4
+88.1±0.3
+86.7
+LoRA-FA
+94.1±0.0 90.4±0.2
+79.9±0.4 92.3±0.2
+77.6±0.0
+91.1±0.1
+87.5
+Method
+SST2
+MRPC
+QNLI
+COLA
+RTE
+STSB
+Avg.
+RoBERTa-large
+Full-FT
+96.2±0.0 90.1±0.0
+80.0±0.0 94.3±0.2
+86.0±0.0
+92.1±0.0
+89.8
+LoRA
+95.2±0.1 89.3±0.3
+72.0±0.2
+94.5±0.3 82.4±0.4
+92.0±0.2
+87.6
+LoRA-QV 96.2±0.3 90.3±0.2
+72.0±0.1
+94.8±0.2
+85.2±0.1
+92.3±0.3
+88.5
+QLoRA
+94.1±0.0 87.0±0.2
+69.0±0.1
+90.5±0.3
+71.1±0.3
+89.9±0.2
+83.6
+VeRA
+96.0±0.3 90.8±0.4
+70.0±0.1
+94.4±0.1
+85.9±0.1 91.6±0.0
+88.1
+AdaLoRA
+94.9±0.3 88.9±0.2
+71.9±0.1
+93.0±0.3
+81.9±0.4
+90.0±0.3
+86.8
+LoRA+
+95.9±0.4 90.9±0.2 77.0±0.1
+94.1±0.3
+84.0±0.3
+91.9±0.2
+89.0
+PiSSA
+96.0±0.2 89.9±0.4
+73.9±0.2
+94.1±0.1
+85.0±0.0
+89.9±0.0
+88.1
+DoRA
+94.0±0.2 89.0±0.3
+71.9±0.0
+93.0±0.1
+83.0±0.2
+91.0±0.1
+87.0
+LoRA-GA 95.1±0.1 90.9±0.3 80.0±0.1 94.0±0.3
+84.1±0.3
+92.1±0.2
+89.4
+LoRA-FA
+96.1±0.4 91.2±0.0
+80.9±0.4
+94.4±0.3
+85.5±0.2
+92.0±0.2
+90.0
+6
+
+Preprint
+Following a similar approach to the related work (Dettmers et al., 2023), we utilize the pre-trained
+RoBERTa-base model with 125 million parameters and RoBERTa-large model with 355 million
+parameters to evaluate fine-tuning performance on the GLUE benchmark. Drawing inspiration
+from (Mangrulkar et al., 2022), we first conduct a hyperparameter search on the MRPC task to
+determine the optimal settings, which are subsequently applied to other tasks. The results, summarized
+in Table 2, demonstrate that LoRA-FA achieves performance comparable to, and in some cases
+surpassing, Full-FT. Specifically, LoRA-FA achieves the best results on MRPC and RTE when
+fine-tuning RoBERTa-base, and on MRPC and QNLI when fine-tuning RoBERTa-large. Surprisingly,
+LoRA-FA attains an average accuracy of 87.5% with RoBERTa-base and 90% with RoBERTa-
+large, both of which exceed the performance of Full-FT. Furthermore, LoRA-FA consistently and
+significantly outperforms standard LoRA across both models.
+6.2
+PERFORMANCE ON DOMAIN-SPECIFIC TASKS
+Table 3: Performance comparison on the MT-Bench, HumanEval, and GSM8K benchmarks. The
+default rank is set to 64, and we use a maximum sequence length of 1024 with a global batch size of
+8. The best and second-best results are marked in bold and underline, respectively. We report the
+average performance and its standard deviation over three independent runs for each task.
+Model
+Llama2-7B
+Llama3-8B
+Method
+MT-Bench HumanEval
+GSM8K
+MT-Bench
+HumanEval
+GSM8K
+Full-FT
+5.3±0.2
+35.3±0.0
+59.5±0.2
+8.2±0.1
+66.1±0.2
+78.2±0.4
+LoRA
+5.6±0.0
+14.8±0.2
+42.9±0.4
+7.4±0.1
+62.2±0.2
+71.3±0.0
+QLoRA
+4.9±0.1
+12.1±0.5
+42.4±0.4
+6.9±0.1
+59.8±0.1
+68.9±0.7
+VeRA
+5.0±0.0
+12.0±0.4
+42.9±0.4
+7.0±0.2
+59.8±0.3
+69.8±0.0
+AdaLoRA
+5.5±0.2
+17.2±0.1
+51.0±0.2
+7.1±0.1
+62.1±0.4
+70.8±0.0
+LoRA+
+5.7±0.1
+17.8±0.0
+51.5±0.2
+7.4±0.1
+63.0±0.2
+71.3±0.3
+PiSSA
+5.3±0.2
+16.2±0.1
+45.6±0.3
+7.4±0.1
+63.8±0.1
+71.3±0.2
+DoRA
+5.9±0.1
+19.0±0.4
+52.2±0.3
+7.5±0.1
+63.9±0.1
+72.1±0.1
+LoRA-GA(r=64)
+5.9±0.2
+19.2±0.4
+54.5±0.3
+7.5±0.0
+63.9±0.2
+72.1±0.4
+LoRA-GA(r=128)
+6.1±0.0
+23.1±0.4
+55.1±0.4
+7.6±0.0
+64.1±0.2
+72.5±0.2
+LoRA-Pro(r=64)
+5.8±0.1
+22.0±0.4
+55.7±0.1
+7.5±0.1
+64.5±0.5
+73.3±0.0
+LoRA-Pro(r=128)
+6.0±0.1
+33.1±0.3
+56.6±0.4
+7.6±0.2
+64.8±0.7
+74.1±0.1
+LoRA-FA(r=64)
+5.7±0.0
+28.1±0.4
+57.0±0.2
+7.5±0.0
+64.5±0.3
+75.3±0.5
+LoRA-FA(r=128)
+6.1±0.0
+33.9±0.2
+57.3±0.3
+7.6±0.1
+65.0±0.3
+75.6±0.3
+In this section, we evaluate the performance of LoRA-FA on LLMs, focusing on dialogue generation,
+mathematical reasoning, and code generation capabilities (i.e. CHAT, MATH, and CODE). Our
+experimental setup follows the configuration used in LoRA-GA (Wang et al., 2024a) and LoRA-
+Pro (Wang et al., 2024c).
+The results presented in Table 3 underscore the strong performance of LoRA-FA. Notably, LoRA-
+GA, LoRA-Pro, and LoRA-FA all achieve significant improvements over the original LoRA. For
+instance, LoRA-FA yields performance gains of 0.5 on MT-Bench, 19.1 on GSM8K, and 14.4 on
+HumanEval when fine-tuning LLaMA2-7B, and gains of 0.2 on MT-Bench, 2.8 on GSM8K, and
+4.3 on HumanEval when fine-tuning LLaMA3-8B. Furthermore, LoRA-FA consistently matches
+the performance of LoRA-Pro. These findings validate the effectiveness of the proposed LoRA-FA
+approach. Additionally, the performance of LoRA-FA exhibits a consistent upward trend as the rank
+increases.
+The experimental results also indicate that, in most cases, LoRA-FA achieves a level of approximate
+full-gradient capability comparable to that of LoRA-GA and LoRA-Pro. LoRA-FA trains only
+matrix B, whereas both LoRA-GA and LoRA-Pro train both A and B. Therefore, at the same rank,
+LoRA-FA has half as many trainable parameters and thus twice the parameter efficiency. For example,
+when fine-tuning Llama2-7B and evaluating on MT-Bench, LoRA-FA with rank 64 slightly trails
+LoRA-Pro and LoRA-GA because it has only half as many trainable parameters (LoRA-FA: 5.7;
+LoRA-GA: 5.9; LoRA-Pro: 5.8). However, when the rank increases to 128, LoRA-FA matches the
+trainable parameter count of the other two methods and achieves superior performance.
+7
+
+Preprint
+6.3
+PERFORMANCE ON RECENT LARGER BASE MODELS
+Table 4: Performance on larger base models (GSM8K, non-thinking 0-shot).
+Method
+GSM8K Accuracy
+DeepSeek-v2-lite-chat Qwen3-8B
+Vanilla (Reasoning mode)
+58.1
+76.9
+LoRA (Non-Thinking 0-shot)
+66.5
+82.4
+LoRA-Pro (Non-Thinking 0-shot)
+71.2
+84.5
+LoRA-FA (Non-Thinking 0-shot)
+71.1
+84.5
+We conduct additional experiments on Qwen3-8B (Yang & Anfeng Li, 2025) and DeepSeek-V2-Lite-
+Chat (16B MoE) (DeepSeek-AI et al., 2024) using the GSM8K benchmark under the non-thinking
+0-shot evaluation protocol (except for the vanilla model, which uses its native reasoning mode). This
+helps to further demonstrate the scalability and broad applicability of LoRA-FA.
+These additional experiments on Qwen3-8B and DeepSeek-V2-Lite-Chat (16B MoE) in Table 4 pro-
+vide robust evidence that LoRA-FA scales effectively to modern, large-scale models and consistently
+delivers state-of-the-art performance. Notably, LoRA-FA matches the performance of LoRA-Pro on
+both models, demonstrating that our proposed method is competitive with the latest PEFT approaches,
+even at scale.
+6.4
+SYSTEM EFFICIENCY
+Full-FT
+LoRA
+QLoRA
+VeRA
+PiSSA
+LoRA+
+DoRA
+AdaLoRA
+LoRA-GA
+LoRA-Pro
+LoRA-FA
+0
+10
+20
+30
+40
+50
+60
+70
+80
+Memory (GB)
+OOM
+OOM
+OOM
+OOM
+OOM
+OOM
+OOM
+OOM
+OOM
+OOM
+52.2
+other
+parameter
+gradient
+optimizer
+activation
+(a) Runtime memory dissection
+1
+2
+4
+8
+12
+Batch Size
+0
+20
+40
+60
+MFU (%)
+LoRA-FA (Ours)
+LoRA
+QLoRA
+VeRA
+DoRA
+LoRA-Pro
+TFLOPS:44
+TFLOPS:88
+TFLOPS:130
+TFLOPS:151
+TFLOPS:165
+TFLOPS:43
+TFLOPS:56
+TFLOPS:132
+TFLOPS:152
+TFLOPS:125
+TFLOPS:111
+TFLOPS:75
+TFLOPS:39
+TFLOPS:1
+TFLOPS:2
+TFLOPS:4
+TFLOPS:7
+TFLOPS:27
+TFLOPS:52
+TFLOPS:73
+TFLOPS:35
+TFLOPS:71
+TFLOPS:99
+TFLOPS:120
+(b) MFU under different batch sizes
+Figure 2: (a): Dissecting the runtime memory overhead of different methods in fine-tuning Llama2-
+7B. We use a global batch size of 8, and a maximum sequence length of 1024. The dashed red
+line denotes the 80GB capacity of the NVIDIA A800 GPU. (b): Model FLOPs utilization (MFU)
+of different methods in fine-tuning Llama2-7B. To ensure the successful execution of other PEFT
+methods under most batch size settings, the sequence length is fixed at 512. The ranks for all methods
+in (a) and (b) are fixd to 64.
+6.4.1
+ACTIVATION REDUCTION
+To evaluate the system efficiency of LoRA-FA, we conducted an experiment comparing memory
+usage across a range of PEFT methods, including LoRA, QLoRA, VeRA, PiSSA, LoRA+, DoRA,
+AdaLoRA, LoRA-GA, LoRA-Pro, and our proposed LoRA-FA. We employed the benchmarking
+tool provided by (Zhang et al., 2023a) and performed the evaluation on a single NVIDIA A800
+GPU. The experimental results are presented in Figure 2. The findings demonstrate that LoRA-FA
+consistently achieves substantial memory savings compared to other PEFT methods during fine-
+tuning. Specifically, LoRA-FA reduces memory usage by more than 27.8 GB (80 GB vs. 52.2 GB)
+relative to vanilla LoRA, making it the only method capable of running under the given memory
+8
+
+Preprint
+constraints. In contrast, all other methods exceed the GPU memory limit, resulting in out-of-memory
+(OOM) errors.
+Furthermore, the results highlight that activation memory constitutes the dominant component of
+memory consumption during training. Although QLoRA stores model parameters in 4-bit precision,
+its high activation memory cost also prevents it from running successfully. In particular, in addition
+to the standard forward activations required for backpropagation, QLoRA must retain both the
+quantization states and a copy of the quantized model to compute input gradients. As illustrated in
+Figure 2(a), it is important to note that the number of trainable parameters does not directly correlate
+with runtime memory efficiency.
+6.4.2
+COMPUTATIONAL EFFICIENCY
+By eliminating the activation of A, LoRA-FA also removes both the feed-forward and backpropaga-
+tion computations associated with the down-projection matrix A. Although LoRA-FA introduces
+additional computational overhead for computing the gradient of B, this overhead is mitigated
+through kernel-level optimization. To evaluate the efficiency of FLOPs utilization, we conduct a
+comparative experiment between LoRA-FA and other PEFT methods, measuring model FLOPs
+utilization (MFU) (Chowdhery & et al., 2022), as shown in Figure 2(b). The results demonstrate
+that LoRA-FA achieves MFU comparable to, or even higher than, that of LoRA, and consistently
+outperforms all other PEFT methods. Furthermore, due to its reduced memory footprint from elimi-
+nated activation storage, LoRA-FA supports larger batch sizes, scaling from 8 to 12, thereby enabling
+further speedups. Notably, our primary competitor, LoRA-Pro, exhibits MFU levels so low as to be
+nearly unusable, whereas LoRA-FA outperforms it in system efficiency by virtue of its lightweight
+computation.
+6.5
+DISCUSSIONS ON THE INITIALIZATION OF A
+Since matrix A remains fixed in LoRA-FA, its initialization may influence the model’s performance.
+To investigate this, we first examine the distributions of LoRA A matrices corresponding to different
+base model modules before and after fine-tuning. As shown in Figure 3, when A is initialized using
+a Gaussian distribution, all resulting A∗matrices retain a Gaussian distribution post-training. In
+contrast, when initialized with a uniform distribution, the down-projection layer (i.e., the MLP’s
+down-proj layer) maintains a strong Gaussian-like distribution, while other A∗matrices exhibit
+a tendency to shift from a uniform to a Gaussian distribution during training. This observation
+suggests that, during training, A tends to evolve toward a Gaussian distribution while preserving some
+characteristics of its initial distribution. To further assess the impact of initialization on LoRA-FA’s
+performance, we investigate the following question: if the initial A0 follows a distribution similar to
+the final A∗, does this lead to improved performance?
+Table 5: Ablation study on various initialization strategies for the LoRA-FA matrix A. “All Uniform”
+(“All Gaussian”) indicates that every A adapter is initialized with a uniform (Gaussian) distribution.
+“Uniform + D Gaussian” means only the A adapter in the Down projection is initialized with a
+Gaussian distribution, while the rest are uniformly initialized.
+Model
+Method
+GSM8K
+Llama3-8B
+All Uniform
+74.9
+Uniform + D Gaussian
+75.2
+All Gaussian
+75.6
+From the analysis above, we observe that regardless of the initialization method, the A in the down-
+proj layer consistently exhibits a Gaussian distribution after training. Therefore, we test the hypothesis
+by initializing only the A in the down-proj layer with a Gaussian distribution while keeping the other
+modules’ A initialized uniformly. The experimental results are reported in Table 5. They show that
+initializing the down-proj layer’s A to match the final distribution (i.e., Gaussian) yields improved
+performance (75.2 vs. 74.9). Furthermore, globally initializing all A matrices with a Gaussian
+distribution also leads to better performance compared to global uniform initialization (75.6 vs. 74.9),
+supporting the importance of distribution alignment in LoRA-FA initialization.
+9
+
+Preprint
+0.2
+0.0
+0.2
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(a) Query
+0.2
+0.0
+0.2
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(b) Key
+0.15 0.00 0.15 0.30
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(c) Value
+0.2
+0.0
+0.2
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(d) Output
+0.2
+0.0
+0.2
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(e) UP
+0.2
+0.0
+0.2
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(f) DOWN
+0.15 0.00
+0.15
+Values
+0
+1
+2
+3
+4
+5
+6
+7
+Frequency
+A0
+A*
+(g) GATE
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+50
+Frequency
+A0
+A*
+(h) Query
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+50
+Frequency
+A0
+A*
+(i) Key
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+Frequency
+A0
+A*
+(j) Value
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+50
+Frequency
+A0
+A*
+(k) Output
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+50
+Frequency
+A0
+A*
+(l) UP
+0.01
+0.00
+0.01
+Values
+0
+10
+20
+30
+40
+50
+60
+70
+80
+Frequency
+A0
+A*
+(m) DOWN
+0.015
+0.000
+0.015
+Values
+0
+10
+20
+30
+40
+Frequency
+A0
+A*
+(n) GATE
+Figure 3: The distribution of the initial A matrices (A0) and the corresponding optimized A∗across
+different layers during LoRA fine-tuning on LLaMA3-8B. Figures (a) - (g) represent cases where A0
+is initialized using a Gaussian distribution, while figures (h) - (n) correspond to cases where A0 is
+initialized using a uniform distribution.
+7
+CONCLUSION
+In this work, we introduce LoRA-FA, an efficient and effective parameter-efficient fine-tuning method.
+We identify the collapsing behavior of A and B in update W, showing that only a subset of gradients
+needs to be approximated. By minimizing the discrepancy between the gradient with respect to B
+and the full gradient g, LoRA-FA delivers both high efficiency and strong performance. Experiments
+on Dense and MoE LLMs show that LoRA-FA consistently matches existing PEFT methods and
+full fine-tuning. Moreover, LoRA-FA significantly reduces activation memory consumption and
+computational cost during fine-tuning.
+REFERENCES
+Marah Abdin and Sam Ade Jacobs et al. Phi-3 technical report: A highly capable language model
+locally on your phone, 2024. URL https://arxiv.org/abs/2404.14219.
+Rohan Anil, Andrew M. Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos,
+Siamak Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng Chen, and Eric Chu et al. Palm 2 technical
+report, 2023.
+Ge Bai, Jie Liu, Xingyuan Bu, Yancheng He, Jiaheng Liu, Zhanhui Zhou, Zhuoran Lin, Wenbo Su,
+Tiezheng Ge, Bo Zheng, et al. Mt-bench-101: A fine-grained benchmark for evaluating large
+language models in multi-turn dialogues. arXiv preprint arXiv:2402.14762, 2024.
+Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain,
+Stanislav Fort, Deep Ganguli, Tom Henighan, et al. Training a helpful and harmless assistant with
+reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862, 2022.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal,
+Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are
+few-shot learners. Advances in neural information processing systems, 33:1877–1901, 2020.
+Kerim B¨uy¨ukaky¨uz. Olora: Orthonormal low-rank adaptation of large language models, 2024. URL
+https://arxiv.org/abs/2406.01775.
+Mark Chen and et al. Jerry Tworek. Evaluating large language models trained on code. arXiv preprint
+arXiv:2107.03374, 2021.
+Aakanksha Chowdhery and Sharan Narang et al. Palm: Scaling language modeling with pathways,
+2022. URL https://arxiv.org/abs/2204.02311.
+10
+
+Preprint
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser,
+Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John
+Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168,
+2021.
+Tri Dao, Dan Fu, Stefano Ermon, Atri Rudra, and Christopher R´e. Flashattention: Fast and memory-
+efficient exact attention with io-awareness. Advances in Neural Information Processing Systems,
+35:16344–16359, 2022.
+DeepSeek-AI, Aixin Liu, and et al. Bei Feng. Deepseek-v2: A strong, economical, and efficient
+mixture-of-experts language model, 2024. URL https://arxiv.org/abs/2405.04434.
+Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. Llm. int8 (): 8-bit matrix
+multiplication for transformers at scale. Advances in neural information processing systems,
+2022.
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning
+of quantized llms. arXiv preprint arXiv:2305.14314, 2023.
+Abhimanyu Dubey and Abhinav Jauhri et al. The llama 3 herd of models, 2024. URL https:
+//arxiv.org/abs/2407.21783.
+Soufiane Hayou, Nikhil Ghosh, and Bin Yu. Lora+: Efficient low rank adaptation of large models,
+2024. URL https://arxiv.org/abs/2402.12354.
+Haonan He, Peng Ye, Yuchen Ren, Yuan Yuan, Luyang Zhou, Shucun Ju, and Lei Chen. Gora:
+Gradient-driven adaptive low rank adaptation, 2025. URL https://arxiv.org/abs/2502.
+12171.
+Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe,
+Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for
+nlp. In International Conference on Machine Learning, pp. 2790–2799. PMLR, 2019.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International
+Conference on Learning Representations, 2022. URL https://openreview.net/forum?
+id=nZeVKeeFYf9.
+Zhiqiang Hu, Yihuai Lan, Lei Wang, Wanyu Xu, Ee-Peng Lim, Roy Ka-Wei Lee, Lidong Bing,
+and Soujanya Poria. Llm-adapters: An adapter family for parameter-efficient fine-tuning of large
+language models. arXiv preprint arXiv:2304.01933, 2023.
+Dawid J. Kopiczko, Tijmen Blankevoort, and Yuki M. Asano. Vera: Vector-based random matrix
+adaptation, 2024. URL https://arxiv.org/abs/2310.11454.
+Vijay Anand Korthikanti, Jared Casper, Sangkug Lym, Lawrence McAfee, Michael Andersch,
+Mohammad Shoeybi, and Bryan Catanzaro. Reducing activation recomputation in large transformer
+models. Proceedings of Machine Learning and Systems, 5, 2023.
+Brian Lester, Rami Al-Rfou, and Noah Constant. The power of scale for parameter-efficient prompt
+tuning.
+In Proceedings of the 2021 Conference on Empirical Methods in Natural Language
+Processing, pp. 3045–3059, 2021.
+Xiang Lisa Li and Percy Liang. Prefix-tuning: Optimizing continuous prompts for generation. In
+Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the
+11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers),
+pp. 4582–4597, 2021.
+Shih-Yang Liu, Chien-Yi Wang, Hongxu Yin, Pavlo Molchanov, Yu-Chiang Frank Wang, Kwang-
+Ting Cheng, and Min-Hung Chen. Dora: Weight-decomposed low-rank adaptation. arXiv preprint
+arXiv:2402.09353, 2024.
+11
+
+Preprint
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike
+Lewis, Luke Zettlemoyer, and Veselin Stoyanov. Roberta: A robustly optimized bert pretraining
+approach, 2019.
+Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. International Conference
+on Learning Representations, 2017.
+Sourab Mangrulkar, Sylvain Gugger, Lysandre Debut, Younes Belkada, and Sayak Paul. Peft: State-
+of-the-art parameter-efficient fine-tuning methods. https://github.com/huggingface/
+peft, 2022.
+Fanxu Meng, Zhaohui Wang, and Muhan Zhang. Pissa: Principal singular values and singular vectors
+adaptation of large language models, 2024. URL https://arxiv.org/abs/2404.02948.
+OpenAI. Gpt-4 technical report, 2023.
+Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong
+Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow
+instructions with human feedback. Advances in Neural Information Processing Systems, 35:
+27730–27744, 2022.
+Kaustubh Ponkshe, Raghav Singhal, Eduard Gorbunov, Alexey Tumanov, Samuel Horvath, and
+Praneeth Vepakomma. Initialization using update approximation is a silver bullet for extremely
+efficient low-rank fine-tuning, 2025. URL https://arxiv.org/abs/2411.19557.
+Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. Zero: Memory optimiza-
+tions toward training trillion parameter models. In SC20: International Conference for High
+Performance Computing, Networking, Storage and Analysis, pp. 1–16. IEEE, 2020.
+Chunlin Tian, Zhan Shi, Zhijiang Guo, Li Li, and Chengzhong Xu. Hydralora: An asymmetric lora
+architecture for efficient fine-tuning, 2024. URL https://arxiv.org/abs/2404.19245.
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timoth´ee
+Lacroix, Baptiste Rozi`ere, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand
+Joulin, Edouard Grave, and Guillaume Lample. Llama: Open and efficient foundation language
+models, 2023a.
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, and Shruti Bhosale et al. Llama 2: Open foundation
+and fine-tuned chat models, 2023b.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman.
+GLUE: A multi-task benchmark and analysis platform for natural language understanding. In
+International Conference on Learning Representations, 2019.
+Shaowen Wang, Linxi Yu, and Jian Li. Lora-ga: Low-rank adaptation with gradient approximation,
+2024a. URL https://arxiv.org/abs/2407.05000.
+Xindi Wang, Mahsa Salmani, Parsa Omidi, Xiangyu Ren, Mehdi Rezagholizadeh, and Armaghan
+Eshaghi. Beyond the limits: A survey of techniques to extend the context length in large language
+models, 2024b. URL https://arxiv.org/abs/2402.02244.
+Zhengbo Wang, Jian Liang, Ran He, Zilei Wang, and Tieniu Tan. Lora-pro: Are low-rank adapters
+properly optimized?, 2024c. URL https://arxiv.org/abs/2407.18242.
+Jason Wei, Maarten Bosma, Vincent Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du,
+Andrew M Dai, and Quoc V Le. Finetuned language models are zero-shot learners. In International
+Conference on Learning Representations, 2021.
+Can Xu, Qingfeng Sun, Kai Zheng, Xiubo Geng, Pu Zhao, Jiazhan Feng, Chongyang Tao, Qingwei
+Lin, and Daxin Jiang. WizardLM: Empowering large pre-trained language models to follow
+complex instructions. In The Twelfth International Conference on Learning Representations,
+2024. URL https://openreview.net/forum?id=CfXh93NDgH.
+12
+
+Preprint
+An Yang and et al. Anfeng Li. Qwen3 technical report, 2025. URL https://arxiv.org/abs/
+2505.09388.
+Longhui Yu, Weisen Jiang, Han Shi, Jincheng Yu, Zhengying Liu, Yu Zhang, James T Kwok, Zhenguo
+Li, Adrian Weller, and Weiyang Liu. Metamath: Bootstrap your own mathematical questions for
+large language models. arXiv preprint arXiv:2309.12284, 2023.
+Juzheng Zhang, Jiacheng You, Ashwinee Panda, and Tom Goldstein. Lori: Reducing cross-task
+interference in multi-task low-rank adaptation, 2025. URL https://arxiv.org/abs/2504.
+07448.
+Longteng Zhang, Xiang Liu, Zeyu Li, Xinglin Pan, Peijie Dong, Ruibo Fan, Rui Guo, Xin Wang,
+Qiong Luo, Shaohuai Shi, and Xiaowen Chu. Dissecting the runtime performance of the training,
+fine-tuning, and inference of large language models, 2023a. URL https://arxiv.org/abs/
+2311.03687.
+Qingru Zhang, Minshuo Chen, Alexander Bukharin, Nikos Karampatziakis, Pengcheng He, Yu Cheng,
+Weizhu Chen, and Tuo Zhao. Adalora: Adaptive budget allocation for parameter-efficient fine-
+tuning, 2023b. URL https://arxiv.org/abs/2303.10512.
+Tianyu Zheng, Ge Zhang, Tianhao Shen, Xueling Liu, Bill Yuchen Lin, Jie Fu, Wenhu Chen, and
+Xiang Yue. Opencodeinterpreter: Integrating code generation with execution and refinement, 2025.
+URL https://arxiv.org/abs/2402.14658.
+Jiacheng Zhu, Kristjan Greenewald, Kimia Nadjahi, Haitz S´aez de Oc´ariz Borde, Rickard Br¨uel
+Gabrielsson, Leshem Choshen, Marzyeh Ghassemi, Mikhail Yurochkin, and Justin Solomon.
+Asymmetry in low-rank adapters of foundation models, 2024. URL https://arxiv.org/
+abs/2402.16842.
+13
+
+Preprint
+A
+PROOF OF THEORETICAL RESULTS
+A.1
+PROOF OF THEOREM 2.1
+Theorem. Consider the optimization process in LoRA, where ∆W = AB. Let A0 denote the initial
+value of A, and suppose A∗∈Rm×r and B∗∈Rr×n are the optimal solutions for A and B in the
+LoRA optimization. Assume that both A0 and A∗are full-rank matrices. Then, the low-rank update
+of W in LoRA can be expressed as a single-layer linear regression, formulated as:
+∆W = A∗B∗≈A0B′∗
+(7)
+where B′∗has the same dimensions as B, i.e., B′∗∈Rr×n.
+Proof. In summary, the proof of Theorem 2.1 is divided into two parts. In the first part we derive
+the optimal solution, in the second part we give the Expected Value of the approximation under the
+distribution of N(0, 1).
+Part I
+Given the optimal solutions A∗∈Rm×r and B∗∈Rr×n, the optimal update to W is given by:
+∆W = A∗B∗
+(8)
+If there exists a matrix C ∈Rr×r such that A∗= A0C, substituting this into Equation 4 yields:
+∆W = A∗B∗= A0(CB∗)
+(9)
+Since the composition of linear transformations is equivalent to a single linear transformation, CB∗
+can be reparameterized as B′∗. This demonstrates that the update represented in Equation 4 can be
+viewed as originating from a single-layer linear update.
+Next, we derive the conditions under which such a C exists:
+1. A∗and A0 span the same subspace S. If the two full-rank matrices A∗and A0 span the same
+subspace S, there exists an invertible matrix C ∈Rr×r such that A∗= A0C.
+2. A∗and A0 span different subspaces S′̸ = S. If A∗and A0 span different subspaces S′ and S, we
+can approximate C by solving the following optimization problem:
+min
+C ∥A∗−A0C∥2
+F
+(10)
+where ∥· ∥F denotes the Frobenius norm.
+Let the objective function be:
+f(C) = ∥A∗−A0C∥2
+F
+(11)
+Taking the gradient of f with respect to C and setting it to zero, we obtain:
+∂f
+∂C = −2AT
+0 (A∗−A0C) = 0
+(12)
+AT
+0 A0C = AT
+0 A∗
+(13)
+Since AT
+0 A0 is invertible (as A0 is full rank with rank r), we can solve for C:
+C = (AT
+0 A0)−1AT
+0 A∗
+(14)
+This shows that C has an optimal closed-form solution. Furthermore, since A∗is the optimal solution
+for A in the LoRA optimization, the corresponding C is also optimal for updating W.
+Part II
+Next, we calculate the Expected Value of ∥A∗−A0C∗∥2
+F when A∗and A0 are under N(0, 1).
+First, recall that the residual can be expressed as:
+14
+
+Preprint
+A∗−A0C∗= A∗−A0(AT
+0 A0)−1AT
+0 A∗
+= (I −P)A∗
+where P = A0(AT
+0 A0)−1AT
+0 is the projection matrix onto the column space of A0, I −P is the
+projection onto the orthogonal complement of the column space of A0. Therefore, the residual
+A∗−A0C∗is the projection of A∗onto the orthogonal complement of col(A0).
+Since A∗has entries from N(0, 1), its columns a∗
+i are independent standard Gaussian vectors in Rm.
+For each column a∗
+i , the residual is:
+ri = (I −P)a∗
+i
+The squared Frobenius norm of the residual is:
+∥A∗−A0C∗∥2
+F =
+r
+X
+i=1
+∥ri∥2
+2
+Since the columns are identically distributed, it suffices to compute:
+E
+
+∥ri∥2
+2
+
+,
+for any i = 1, . . . , r
+Because A∗and A0 are independent and A0 is fixed in each term when considering a∗
+i , we condition
+on A0. Let col(A0) be the r-dimensional subspace of Rm spanned by the columns of A0, col(A0)⊥
+be its orthogonal complement, which has dimension m −r. The projection (I −P) projects any
+vector onto col(A0)⊥.
+Since a∗
+i ∼N(0, Im), its variance in any direction is 1. The expected squared norm of its projection
+onto col(A0)⊥is:
+E
+
+∥ri∥2
+2 | A0
+
+=
+m−r
+X
+j=1
+E
+
+(vT
+j a∗
+i )2
+where {vj} is an orthonormal basis for col(A0)⊥.
+Since vT
+j a∗
+i ∼N(0, 1), we have:
+E
+
+(vT
+j a∗
+i )2
+= 1
+Thus:
+E
+
+∥ri∥2
+2 | A0
+
+= m −r
+Because this holds for each column a∗
+i , the total expected squared norm is:
+E
+
+∥A∗−A0C∗∥2
+F | A0
+
+= r × (m −r)
+Since E
+
+∥A∗−A0C∗∥2
+F | A0
+
+does not depend on A0 (the result is the same for any full-rank A0),
+we have:
+E
+
+∥A∗−A0C∗∥2
+F
+
+= r × (m −r)
+Therefore, the expected value is as above.
+15
+
+Preprint
+Remark 1. The approximation ∆W = A∗B∗≈A0B′∗should be interpreted as a structural
+approximation rather than an exact numerical equality. Although the expected residual r(m −r) is
+not zero under Gaussian assumptions, this value represents the deviation in the ambient m × r space.
+In typical LoRA settings where r ≪m, the relative per-dimension discrepancy is small, and the
+projection A0C∗preserves most of the subspace structure of A∗. Consequently, the low-rank update
+can still be effectively represented within the subspace of A0, supporting the claim of a collapsible
+single-layer structure.
+Remark 2. While the theoretical analysis often considers the case where A is initialized from a
+Gaussian distribution, this choice is primarily for analytical tractability and to align with common
+practice in neural network initialization. Importantly, our method and its theoretical guarantees are not
+fundamentally reliant on the exact distribution of A, as detailed in the following points: (i) Generality
+of Theoretical Results. In Theorem 4.1 and related proofs, the key requirement for the result to
+hold is that both the initial and optimal A matrices are full-rank and span the relevant subspace, not
+that they are strictly Gaussian. The Gaussian assumption is used in the expectation calculation to
+provide intuition about typical-case behavior, but the linear collapse and gradient adjustment results
+are distribution-agnostic as long as A is full-rank. (ii) Empirical Robustness to Initialization. Our
+ablation studies directly address this concern by evaluating LoRA-FA performance under different
+initializations of A (uniform, Gaussian, and mixed). The results demonstrate that LoRA-FA achieves
+strong and consistent performance regardless of whether A is initialized with a Gaussian or uniform
+distribution. Notably, the model tends to evolve A toward a Gaussian-like distribution during training,
+even when initialized otherwise (see Figure 3 and the related discussion).
+A.2
+PROOF OF THEOREM 3.1
+Theorem. Let A ∈Rm×r be a fixed full-rank matrix, g ∈Rm×n denote the gradient of the loss with
+respect to W, and gB ∈Rr×n represent the gradient with respect to B in LoRA-FA. The objective
+function
+min
+gB ∥ˆgLoRA-FA −g∥2
+F
+(15)
+is minimized by
+gB =
+ r
+α
+2
+(A⊤A)−1gB
+LoRA-FA,
+(16)
+where ˆgLoRA-FA = α
+r AgB. The solution also satisfies dL ≤0.
+Proof. We aim to find gB that minimizes the Frobenius norm squared of the difference between
+α
+r AgB and g. Taking the gradient of f with respect to gB and setting it to zero, we have
+∂f
+∂gB = 2α
+r AT α
+r AgB −g
+
+= 0,
+(17)
+=⇒α
+r AgB = g.
+(18)
+Since A is a full-rank matrix, its pseudo-inverse A† is given by:
+A† = (AT A)−1AT
+(19)
+Using the pseudo-inverse, gB can be expressed as:
+gB = r
+αA†g = r
+α(AT A)−1AT g
+(20)
+From Equation 3, the original gradient of B is defined as:
+gB
+LoRA-FA = α
+r AT g
+(21)
+Substituting gB
+LoRA-FA into the solution for gB, we obtain:
+gB = ( r
+α)2(AT A)−1gB
+LoRA-FA
+(22)
+which provides the closed-form solution that minimizes f.
+16
+
+Preprint
+Next, we demonstrate that this solution also satisfies dL ≤0. We begin by showing that dL can be
+expressed as:
+dL = −γ⟨gB
+LoRA-FA, ( r
+α)2(AT A)−1gB
+LoRA-FA⟩F
+(23)
+where γ denotes the learning rate. To establish Equation 23, we first compute the differential change
+in the loss function, given by:
+dL = ⟨∂L
+∂B , dB⟩F
+(24)
+Assuming B is updated as B = B −γgB, then dB = −γgB. Substituting ∂L
+∂B = gB
+LoRA-FA, we derive
+dL as:
+dL = −γ(⟨gB
+LoRA-FA, gB⟩F )
+= −γ(gB
+LoRA-FA, ( r
+α)2(AT A)−1gB
+LoRA-FA⟩F )
+(25)
+For any non-zero vector x, and given that A is full-rank, we have:
+⟨x, AT Ax⟩= ⟨Ax, Ax⟩= ∥Ax∥2 > 0
+(26)
+which implies that A⊤A is positive definite. Consequently, (A⊤A)−1 is also positive definite.
+Applying the Cholesky decomposition (A⊤A)−1 = DD⊤, we substitute this into dL:
+⟨gB
+LoRA-FA, ( r
+α)2(AT A)−1gB
+LoRA-FA⟩F = ( r
+α)2⟨gB
+LoRA-FA, DDT gB
+LoRA-FA⟩F
+= ( r
+α)2⟨DT gB
+LoRA-FA, DT gB
+LoRA-FA⟩F
+= ( r
+α)2∥DT gB
+LoRA-FA∥2
+F ≥0
+(27)
+Thus, dL ≤0, completing the proof.
+A.3
+LORA-FB AND THE PROOF OF THEOREM A.1
+We extend our analysis to LoRA-FB (i.e., freezing B and fine-tuning A), which exhibits similar
+properties. In LoRA-FB, the low-rank gradient is given as ˆgLoRA-FB = α
+r gAB. Our objective remains
+to minimize the discrepancy between ˆgLoRA-FB and the full gradient g. Accordingly, we formulate the
+following optimization problem:
+min
+gA ∥ˆgLoRA-FB −g∥2
+F ,
+s.t.
+ˆgLoRA-FB = α
+r gAB,
+dL ≤0.
+(28)
+Following steps analogous to those used in proving Theorem 4.1, we provide the optimal closed-form
+solution to the optimization problem in Equation 28.
+Theorem A.1. Let B ∈Rr×n be a fixed full-rank matrix, g ∈Rm×n denote the gradient of the
+loss with respect to W, and gA ∈Rm×r represent the gradient with respect to A in LoRA-FB. The
+objective function
+min
+gA ∥ˆgLoRA-FB −g∥2
+F
+(29)
+is minimized by
+gA =
+ r
+α
+2
+gA
+LoRA-FB(BB⊤)−1,
+(30)
+where ˆgLoRA-FA = α
+r gAB. The solution also satisfies dL ≤0.
+Proof. We aim to find gA that minimizes the Frobenius norm squared of the difference between
+α
+r gAB and g. Taking the gradient of f with respect to gA and setting it to zero, we have
+∂f
+∂gA = 2α
+r
+α
+r gAB −g
+
+BT = 0,
+(31)
+=⇒α
+r gAB = g.
+(32)
+17
+
+Preprint
+Since B is a full-rank matrix, its pseudo-inverse B† is given by:
+B† = BT (BBT )−1
+(33)
+Using the pseudo-inverse, gA can be expressed as:
+gA = r
+αgB† = r
+αgBT (BBT )−1
+(34)
+From Equation 3, the original gradient of A is defined as:
+gA
+LoRA-FB = α
+r gBT
+(35)
+Substituting gA
+LoRA-FB into the solution for gA, we obtain:
+gA = ( r
+α)2gA
+LoRA-FB(BBT )−1
+(36)
+which provides the closed-form solution that minimizes f.
+Next, we demonstrate that this solution also satisfies dL ≤0. We begin by showing that dL can be
+expressed as:
+dL = −γ⟨gA
+LoRA-FB, ( r
+α)2gA
+LoRA-FB(BBT )−1⟩F
+(37)
+where γ denotes the learning rate. To establish Equation 37, we first compute the differential change
+in the loss function, given by:
+dL = ⟨∂L
+∂A, dA⟩F
+(38)
+Assuming A is updated as A = A −γgA, then dA = −γgA. Substituting ∂L
+∂A = gA
+LoRA-FB, we derive
+dL as:
+dL = −γ(⟨gA
+LoRA-FB, gA⟩F )
+= −γ(gA
+LoRA-FB, ( r
+α)2gA
+LoRA-FB(BBT )−1⟩F )
+(39)
+For any non-zero vector x, and given that B is full-rank, we have:
+⟨x, BBT x⟩= ⟨BT x, BT x⟩= ∥BT x∥2 > 0
+(40)
+which implies that BBT is positive definite. Consequently, (BBT )−1 is also positive definite.
+Applying the Cholesky decomposition (BBT )−1 = DD⊤, we substitute this into dL:
+⟨gA
+LoRA-FB, ( r
+α)2gA
+LoRA-FB(BBT )−1⟩F = ( r
+α)2⟨gA
+LoRA-FB, gA
+LoRA-FBDDT ⟩F
+= ( r
+α)2⟨gA
+LoRA-FBD, gA
+LoRA-FBD⟩F
+= ( r
+α)2∥gA
+LoRA-FBD∥2
+F ≥0
+(41)
+Thus, dL ≤0, completing the proof.
+Remark. Although g (the gradient with respect to W) may not be directly accessible during training
+in LoRA-FA and LoRA-FB, AppendixA.2 and AppendixA.3 provide insight into how the gradient
+gB and gA can be adjusted using gB
+LoRA-FA, A and gA
+LoRA-FB, B to better approximate the full gradient
+update as in Full-FT.
+18
+
+Preprint
+B
+ALGORITHM OF LORA-FA
+Algorithm 1: AdamW with LoRA-FA
+Input: LoRA scaling α, rank r, learning rate η, AdamW coefficients β1, β2, weight decay λ
+Initialization: {Ai}m
+i=1 with Ai ∼N(0, 1/r); {Bi}m
+i=1 = 0; {mi}m
+i=1 = 0; {vi}m
+i=1 = 0
+for i = 1, . . . , m do
+freeze Ai;
+Ki ←(AiAT
+i )−1 ;
+// precompute inverse
+end
+while training do
+do forward and backward pass to obtain {∇BiL}m
+i=1;
+for i = 1, . . . , m do
+Gi ←∇BiL;
+˜Gi ←
+ r
+α
+2
+GiKi ;
+// LoRA-FA gradient transform
+mi ←β1mi + (1 −β1) ˜Gi;
+vi ←β2vi + (1 −β2) ˜Gi ⊙˜Gi;
+ˆmi ←
+mi
+1 −βt
+1
+;
+ˆvi ←
+vi
+1 −βt
+2
+;
+Bi ←Bi −η
+ˆmi
+√ˆvi + ε;
+if λ > 0 then
+Bi ←Bi −η λ Bi ;
+// weight decay
+end
+end
+end
+C
+PROOFS RELATED TO MEMORY COMPLEXITY
+In this section, we present a comprehensive memory complexity analysis in typical GPT-like fine-
+tuning. In general, the overall memory overhead consists of 4 categories: parameters, gradients,
+optimizer states, and activation.
+Denotations.
+• L - number of layers
+• N - number of linear layers per layer
+• V - size of vocabulary
+• h - number of attention heads
+• b - batch size
+• s - sequence length
+• d - hidden dimension
+• r - LoRA rank
+• W - memory of parameter
+• G - memory of gradient
+• O - memory of optimizer state
+• A - memory of activation
+19
+
+Preprint
+C.1
+COMMON CONCEPTS
+In this section, we introduce the common concepts of memory complexity on W, G, O in Table 6.
+Specifically, W depends on both the compute type and the number of parameter.
+Table 6: Memory (in Bytes) of parameter, gradient, optimizer state, among Full-FT, LoRA, LoRA-FA,
+QLoRA, VeRA, in mix-precision fine-tuning. The model is loaded in 16-bit. #P denotes the number
+of parameter. #TP denotes the number of trainable parameter.
+Full-FT
+LoRA
+LoRA-FA
+QLoRA
+VeRA
+#P
+12Ld2 + dV
+12Ld2 + dV + 16Ldr
+12Ld2 + dV + 8Ldr 12Ld2 + dV + 16Ldr 12Ld2 + dV + 16dr + 8Lr
+#TP 12Ld2 + dV
+16Ldr
+8Ldr
+16Ldr
+8Lr
+W 24Ld2 + 2dV 24Ld2 + 2dV + 32Ldr 24Ld2 + 2dV + 16Ldr 6Ld2 + dV
+2
++ 16Ldr 24Ld2 + 2dV + 32dr + 16Lr
+G
+24Ld2 + 2dV
+32Ldr
+16Ldr
+16Ldr
+8Lr
+O
+48Ld2 + 4dV
+64Ldr
+32Ldr
+32Ldr
+16Lr
+C.2
+ACTIVATION MEMORY COMPLEXITY
+In this section, we present the memory complexity per-layer in Bytes of Full-FT, in 3 data types, in
+Table 7.
+Table 7: Activation memory complexity (in Bytes, per-layer) of Full-FT, in 3 data types. LN denotes
+the layernorm module.
+Data type
+Attention
+MLP
+Sum
+LN
+QKV-i QKV softmax dropout matmul V output dropout
+LN
+up
+gelu
+down dropout
+FP32
+4bsd
+4bsd
+12bsd
+4bhss
+bhss
+4bhss
+4bsd
+bsd
+4bsd 4bsd 64bsd 16bsd
+bsd
+114bsd+9bhss
+Pure-FP16
+2bsd
+2bsd
+6bsd
+2bhss
+bhss
+2bhss
+2bsd
+bsd
+2bsd 2bsd
+8bsd
+8bsd
+bsd
+58bsd+5bhss
+Autocast-BF16 4bsd
+2bsd
+6bsd
+4bhss
+bhss
+2bhss
+2bsd
+bsd
+4bsd 2bsd
+5sd
+8bsd
+bsd
+86bsd+7bhss
+C.3
+ACTIVATION MEMORY REDUCTION OF LORA-FA COMPARED TO LORA
+In this section, we derive the activation memory savings achieved by LoRA-FA compared to LoRA
+when fine-tuning Llama2-7B.
+In Llama2-7B, the Attention module consists of four linear layers: Query, Key, Value, and Output,
+each with dimensions d×d. In the MLP module, there are three linear layers with dimensions d×3d,
+3d × d, and d × d, respectively. Consequently, LoRA-FA reduces the activation memory by a total of
+18bsd per layer. When the number of layers is L, LoRA-FA reduces activation memory by at least
+18bsdL bytes compared to LoRA.
+For instance, when using a batch size of 8 and a sequence length of 1024, substituting d = 4096 and
+L = 32 for Llama2-7B, the theoretical savings of LoRA-FA over LoRA amount to at least 18GB of
+activation memory. In practice, due to PyTorch’s memory reservation behavior or the retention of
+activations by other functions, the actual memory reduction achieved by LoRA-FA typically exceeds
+the theoretical estimate.
+D
+HYPERPARAMETERS AND EXPERIMENT SETTINGS
+In this section, we present the baselines and hyperparameter used in the section 6 and Appendix E.
+Baselines. We mainly compare the performance of LoRA-FA against Full-FT, the standard LoRA,
+and several recent PEFT methods, including the following:
+• LoRA-QV: This method attaches the LoRA module only to the Query and Value layers,
+which aligns with the original setting in Hu et al. (2022).
+• QLoRA (Dettmers et al., 2023): QLoRA is a quantized version of LoRA that applies 4-bit
+quantization to the base weights, significantly reducing memory overhead for parameter
+storage.
+20
+
+Preprint
+• Vector-based Adaptation (VeRA) (Kopiczko et al., 2024): VeRA uses a single pair of frozen
+low-rank matrices shared across all layers and updates a pair of vectors in each selected
+linear layer.
+• PiSSA (Meng et al., 2024): PiSSA optimizes only the essential singular values and vectors
+while keeping the remaining components frozen.
+• LoRA+ (Hayou et al., 2024): LoRA+ improves the learning rate for matrix B in LoRA,
+allowing for more efficient feature learning based on theoretical insights.
+• AdaLoRA (Zhang et al., 2023b): AdaLoRA dynamically adjusts the number of trainable
+parameters assigned to weight matrices and layers, optimizing parameter allocation.
+• DoRA (Liu et al., 2024): DoRA employs weight decomposition to enhance performance,
+serving as a robust and effective baseline.
+• LoRA-GA (Wang et al., 2024a): LoRA-GA approximates the optimization trajectory of the
+first step in LoRA to Full-FT, improving alignment with full fine-tuning.
+• LoRA-Pro (Wang et al., 2024c): LoRA-Pro refines the low-rank gradient in LoRA by
+approximating it with the full gradient, aiming to close the performance gap with Full-FT.
+Table 8: Hyperparameter configurations for finetuning different models on different datasets.
+Model
+Dataset
+Batch size
+Rank
+Sequence length
+Learning rate
+RoBERTa-base
+GLUE
+64
+8
+128
+4e-4
+RoBERTa-large
+GLUE
+32
+8
+128
+9e-5
+Llama2-7B
+MetaMath
+32
+64, 128
+1024
+3e-4
+Llama2-7B
+CodeFeedback
+32
+64, 128
+1024
+5e-5
+Llama2-7B
+WizardLM
+32
+64, 128
+1024
+5e-5
+Llama3-8B
+MetaMath
+32
+64, 128
+1024
+7e-5
+Llama3-8B
+CodeFeedback
+32
+64, 128
+1024
+5e-5
+Llama3-8B
+WizardLM
+32
+64, 128
+1024
+5e-5
+Table 9: Hyperparameter configurations for fine-tuning large sequence length LLMs on consumer
+GPUs.
+Hyperparameter
+RTX4090
+A800 (80GB)
+# GPUs
+1
+Batch size
+1
+Seq.
+2048
+4096
+LoRA layer
+All linear
+LoRA-FA layer
+All linear
+Table 10: Hyperparameter configurations for effect evaluation of the number of LoRA-FA layers.
+# GPUs
+Optimizer
+Batch size
+Rank
+Seq.
+LoRA-FA layer
+1
+AdamW
+1
+64
+1024
+All linear
+Table 11: Hyperparameter configurations for effect evaluation of the size of LoRA-FA rank.
+# GPUs
+Optimizer
+Batch size
+Rank
+Seq.
+LoRA-FA layer
+1
+AdamW
+1
+1, 2, 4, 8, 16, 32, 64, 128
+1024
+All linear
+21
+
+Preprint
+E
+MORE DISCUSSIONS
+E.1
+ENLARGING SEQUENCE LENGTH IN MEMORY CONSTRAINT SCENARIO
+In both pre-training and fine-tuning, it is clear that longer sequence lengths enhance perfor-
+mance (Dubey & et al., 2024; Abdin & et al., 2024; Wang et al., 2024b). However, the memory
+consumption for activations increases rapidly with the input size according to Table 1, making
+long-sequence training challenging. The efficient fine-tuning of LLMs can benefit significantly from
+memory optimization technologies. One such advancement is LoRA-FA, which, when combined
+with FlashAttention (Dao et al., 2022), demonstrates substantial improvements in memory efficiency.
+This combination is particularly advantageous for training LLMs with longer sequence lengths on
+GPUs with limited memory. Consumer-grade GPUs, such as the RTX 4090, have a memory capacity
+of 24GB, which is substantially less than 80GB on A800 or 40GB on A100 server-grade GPUs. This
+memory discrepancy poses a challenge for the efficient training of LLMs. To address this issue, we
+integrate FlashAttention with LoRA-FA to fine-tune the Llama2-7B model (Touvron et al., 2023b),
+aiming to evaluate the system’s memory efficiency. For experiment settings, we set the sequence
+lengths to 2048 and 4096 for the RTX 4090 and A100 GPUs, respectively. We keep the rank fixed at
+64, set the batch size to 1, and attach the LoRA layer to all linear layers. The results are detailed in
+Figure 4(a), which indicates that the combination of FlashAttention and LoRA-FA not only allows for
+the fine-tuning of LLMs with large sequence lengths on consumer-grade GPUs with 24GB memory,
+but also enables the extension of sequence length up to 4096 on GPUs with 40GB memory. This is a
+significant development, as LoRA with FlashAttention is unable to fine-tune such models due to the
+memory limit on the RTX 4090 GPU.
+SEQ=2048
+RTX4090 24GB
+SEQ=4096
+A100 40GB
+GPU Memory (GB)
+23.2
+OOM
+32.9
+OOM
+24GB
+40GB
+LoRA-FA
+LoRA
+(a) Enlarge sequence length
+10 20 30 40 50 60 70 80 90100
+Percentage of LoRA-FA layers (%)
+10
+20
+30
+40
+Memory (GB)
+1
+2
+4
+8
+16
+32
+64
+128
+Rank
+(b) Rank, Percentage of LoRA-FA layers to memory
+Figure 4: (a):Comparison of fine-tuning capability with large sequence length among LoRA-FA and
+LoRA, on RTX4090 (24GB) and A100 (40GB). In this experiment, we enable FlashAttention for
+both approaches. The rank is set to 64, batch size is set to 1, and LoRA is attached to all linear layers.
+The dashed red line denotes the 40GB and 24GB capacity of the NVIDIA A100 GPU and RTX4090
+GPU respectively. (b):GPU memory footprint (GB) under different rank sizes and different number
+of LoRA-FA layer attached. We set the batch size to 1, and the sequence length to 1024. This result
+is from a single A800 80GB.
+E.2
+MEMORY VS. LORA LAYERS AND RANK
+Effects of the number of LoRA-FA layers. To understand how the integration of LoRA-FA layers
+impacts GPU memory usage, we conduct an experiment on the Llama2-7B model. Specifically, we
+investigate how varying the number (or percentage) of LoRA-FA layers affects the peak memory
+consumption during training. We set the batch size to 1, sequence length to 1024, and the rank to 64.
+Memory consumption with a changed number of adapters is shown in Figure 4(b), which shows that
+increasing the number of LoRA-FA layers does not lead to a rise in peak memory usage.
+This outcome is significant because it indicates that LoRA-FA’s memory footprint is not sensitive to
+the number of adapter layers implemented within the model. Consequently, it is feasible to attach
+LoRA-FA adapters to all linear layers within the model without worrying about escalating memory
+22
+
+Preprint
+requirements, while it aligns the accuracy with the Full-FT method. This capability is crucial for
+fine-tuning since it allows for maximal flexibility and the potential for enhanced model performance
+without compromising on memory efficiency.
+Effects of the rank in LoRA layers. To elucidate how the rank in LoRA-FA affects GPU memory
+usage during fine-tuning, we conduct an analysis by varying the rank size while keeping other
+variables constant in fine-tuning Llama2-7B. The batch size is set to 1, the sequence length to 1024,
+and sweeping the rank size from 1 to 128. The impact of rank size on the memory footprint is captured
+in Figure 4(b). The results indicate that the GPU memory footprint is not significantly affected by
+changes in the rank size for LoRA-FA. This observation is noteworthy because it demonstrates that
+practitioners can adjust the rank size within LoRA-FA from the minimal value of 1 to as high as 128
+without encountering out-of-memory (OOM). This flexibility allows for the fine-tuning of the model
+to be optimized for performance without typical memory constraints. Moreover, since LoRA-FA
+exhibits limited sensitivity to the rank in terms of memory consumption, it is always feasible to
+use higher LoRA ranks, which may potentially yield improved performance. In Table 3 of our
+paper, we specifically compare the performance at ranks 64 and 128, and the results demonstrate that
+performance remains consistently strong at rank 128. Therefore, for users employing LoRA-FA, we
+recommend directly adopting a rank of 128.
+E.3
+INITIALIZATION OF A
+In Table 5, we explored the initialization of A to demonstrate the relationship between A0 and
+A∗. Many recent methods focus on the informative initialization of A to enhance the performance.
+Here, we take PiSSA as an example and delve into how LoRA-FA behaves if it adopts a PiSSA-
+style initialization. To address this, we adopted a PiSSA-style initialization for A in LoRA-FA and
+evaluated the performance of Llama3-8B on the MATH domain, using a rank of 128. As shown
+in Table 12, PiSSA-style initialization is not well-suited for LoRA-FA. The underlying reason is
+straightforward: after the PiSSA decomposition, A and B are designed to be adapted jointly; thus,
+freezing A is inherently incompatible with this initialization scheme. In the following part, we will
+provide a detailed theoretical derivation to further elucidate this phenomenon.
+Table 12: Effect of initialization on LoRA-FA. PiSSA-style initialization underperforms standard
+Gaussian initialization on GSM8K with Llama3-8B (rank 128).
+Method
+GSM8K Accuracy
+LoRA-FA w/ Gaussian
+75.6
+LoRA-FA w/ PiSSA style
+70.2
+Recall that in LoRA-FA one takes a single step
+∆W = −α
+r A(AT A)−1AT g = −α
+r PAg,
+where
+PA = A(AT A)−1AT ∈Rm×m
+is the orthogonal projector onto col(A). Define the update energy by
+EA(g) := ∥∆W∥2
+F =
+
+α
+r
+2PAg
+2
+F .
+We compare two initializations of A. In truncated-SVD init, since
+W ≈UrΣrV T
+r , Ur ∈Rm×r, Σr ∈Rr×r, Vr ∈Rn×r,
+then
+ASVD = UrΣ1/2
+r
+, BSVD = Σ1/2
+r
+V T
+r ,
+so that ASVDBSVD ≈W.
+In Gaussian-random init, draw Arand with i.i.d. N(0, 1) entries. Equivalently, col(Arand) is a
+uniformly random r-plane in Rm.
+We can derive such theorems:
+23
+
+Preprint
+(i) SVD can have a blind spot. If ASVD = UrΣ1/2
+r
+, then col(ASVD) = span(Ur). Hence one may
+choose a nonzero gradient g with every column in
+ span(Ur)
+⊥. For that g,
+PASVDg = 0 =⇒EASVD(g) = 0.
+Proof: By construction col(ASVD) = col(Ur). If one picks any nonzero g whose every column lies
+in the orthogonal complement of span(Ur), then PASVDg = 0 and so EASVD(g) = 0.
+(ii) Random subspace captures in expectation an r/m fraction of any g. Let g = [g1 · · · gn] with each
+gj ∈Rm. For a uniformly random r-plane S ⊂Rm, a classical fact is
+ES
+ProjSx
+2
+2 = r
+m∥x∥2
+2, ∀x ∈Rm.
+Applying this column-wise gives
+EArand
+PArandg
+2
+F =
+n
+X
+j=1
+E∥PArandgj∥2
+2 = r
+m
+n
+X
+j=1
+∥gj∥2
+2 = r
+m∥g∥2
+F .
+Hence
+EArand
+
+EArand(g)
+
+=
+
+α
+r
+2 r
+m∥g∥2
+F .
+Proof: Writing g column-wise and using the Grassmann-integration lemma,
+EArand
+PArandg
+2
+F =
+n
+X
+j=1
+E
+ProjSgj
+2
+2 = r
+m
+n
+X
+j=1
+∥gj∥2
+2 = r
+m∥g∥2
+F ,
+and the factor (α/r)2 carries through to the definition of E.
+In conclusion, the truncated-SVD initialization aligns A with the top-r eigendirections of W, which
+can be a good heuristic if one expects task gradients to lie in that subspace, but it admits worst-case
+gradients g that it misses entirely (E = 0). However, the Gaussian-random initialization never has a
+nontrivial blind spot. On any fixed gradient g, it captures in expectation an r
+m-fraction of ∥g∥2. Thus,
+for diverse downstream tasks (where g may be arbitrary), random-init is strictly safer: it guarantees
+nonzero update energy on every gradient (with probability 1), and on average preserves a fixed
+fraction of gradient energy. In practice, to avoid worst-case blind spots and to ensure steady coverage
+of all gradient directions, Gaussian-random initialization is the better default choice for LoRA-FA.
+E.4
+COMBINATION WITH MEMORY OPTIMIZATIONS
+LoRA-FA can be naturally combined with advanced memory optimization approaches, including
+weight quantization like QLoRA (Dettmers et al., 2023), weight sharding like ZeRO (Rajbhandari
+et al., 2020), and selective activation recomputation like FlashAttention (Dao et al., 2022).
+Weight quantization. As discussed before, the memory cost for model weight in 16-bit format is 2n,
+where n is the number of model parameters. For example, the model weight memory cost is 130GB
+for a LLaMA-65B model, which cannot be held in one NVIDIA A100 (80GB) GPU. In LoRA-FA, as
+the model weights are frozen during fine-tuning, we can quantize them into lower bit width to reduce
+the model weight memory overhead without affecting the fine-tuning performance. For example,
+8-bit (Dettmers et al., 2022) and 4-bit quantization methods (Dettmers et al., 2023) can be combined
+with LoRA-FA to reduce the model weight memory by 2 and even 4 times.
+Weight sharding. When training a LLM on multiple GPUs with data parallelism, weight sharding
+or ZeRO stage-3 (Rajbhandari et al., 2020) technique can be combined with LoRA-FA to shard the
+model weight into different GPUs, so that the per-GPU memory cost is reduced by the number of
+GPUs. Different from using ZeRO stage-3 in full-parameter fine-tuning, we only shard the model
+weights and all-gather them to support the feed-forward and back-propagation computations, without
+sharding the adaptor related weights and their gradients and optimizer states. However, weight
+24
+
+Preprint
+sharding has introduced expensive weight gathering communication cost in LoRA-FA, while data
+parallelism only communicates a small amount of gradients for trainable parameters.
+Selective activation recomputation. The activation memory overhead exists in other components
+of a transformer model, such as attention, layernorm, GeLU, and dropout (Korthikanti et al., 2023).
+To address it, we can use full activation recomputation to store the input of each transformer block.
+However, it will disable the memory advantage of LoRA-FA over LoRA, as there is no need to store
+the inputs of LoRA layers with full activation recomputation. To balance the activation cost and
+recomputation cost, we instead use selective activation recomputation to recompute only a fraction
+of model components. For example, FlashAttention (Dao et al., 2022) can eliminate the memory
+cost of attention softmax outputs and accelerate the attention computations with less HBM accesses.
+Besides, we can recompute the dropout by storing the random generator state to get the exact mask.
+E.5
+LIMITATIONS
+LoRA-FA also has some limitations: (i) LoRA-FA can only eliminate the activation associated with
+matrix A. While this reduction reaches the theoretical lower bound for removable activations associate
+with trainable module, however each Transformer layer will still produce its own activations (e.g.,
+the inputs and outputs of attention layers), which LoRA-FA currently cannot reduce. (ii) LoRA-FA
+remains a low-rank fine-tuning method. As such, when the base model has limited capacity or when
+the dataset imposes high demands on model performance, it may lead to suboptimal results.
+IMPACT STATEMENT
+This paper presents research aimed at advancing the field of machine learning. While the work may
+have various potential societal implications, we do not identify any that require explicit emphasis at
+this time.
+25

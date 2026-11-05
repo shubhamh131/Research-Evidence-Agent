@@ -1,0 +1,23 @@
+
+[
+  {
+    "question": "Does LoRA match full fine-tuning quality?",
+    "relevant_ids": ["2603.29824", "2410.21228", "2605.19018"],
+    "type": "conflict"
+  },
+  {
+    "question": "Is RAG better than fine-tuning for adding knowledge to an LLM?",
+    "relevant_ids": ["2601.07054", "2510.20260", "2610.15921"],
+    "type": "conflict"
+  },
+  {
+    "question": "Does dropout help when training large language models?",
+    "relevant_ids": ["2410.15460", "2609.05275", "1811.00998"],
+    "type": "conflict"
+  },
+  {
+    "question": "Do transformers outperform CNNs on image classification?",
+    "relevant_ids": ["2010.11929", "2508.13461", "2504.09076"],
+    "type": "agree"
+  }
+]

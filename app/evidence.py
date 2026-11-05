@@ -20,5 +20,5 @@ def gather_evidence(
         if time.perf_counter() - start > 1:
             time.sleep(3)
 
-    candidates = retrieve(queries, chunks, keep=25)
+    candidates = retrieve(queries, chunks, keep=8)
     return rerank(queries, candidates, per_paper)

@@ -23,7 +23,7 @@ def run_pipeline(question: str, top_k: int = 5):
     times["embed"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    top = screen_papers(question, shortlist, top_k=top_k, batch_size=8)
+    top = screen_papers(question, shortlist, top_k=top_k, batch_size=10)
     times["screen"] = time.perf_counter() - t
 
     counts = {"collected": len(papers), "shortlist": len(shortlist), "final": len(top)}

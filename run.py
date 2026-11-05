@@ -3,10 +3,6 @@ import sys
 import time
 from pathlib import Path
 
-from app.chain import run
-from app.evidence import gather_evidence
-from app.models import Paper, ResearchPlan
-
 QUESTION = "Are RNNs replaced by transformers?"
 SAVE = Path("cache/last_run.json")
 SAVE.parent.mkdir(exist_ok=True)
@@ -28,6 +24,8 @@ def print_times(times):
 mode = sys.argv[1] if len(sys.argv) > 1 else "full"
 
 if mode == "full":
+    from app.chain import run
+
     result, times = run(QUESTION)
     show(result["evidence"])
     print_times(times)
@@ -38,9 +36,22 @@ if mode == "full":
     }
     SAVE.write_text(json.dumps(data))
 
+elif mode == "ids":
+    if not SAVE.exists():
+        sys.exit("No saved run yet. Run `python run.py` first.")
+    data = json.loads(SAVE.read_text())
+    for paper in data.get("papers", []):
+        arxiv_id = paper.get("arxiv_id")
+        if arxiv_id:
+            print(arxiv_id)
+
 elif mode == "evidence":
     if not SAVE.exists():
         sys.exit("No saved run yet. Run `python run.py` first.")
+
+    from app.evidence import gather_evidence
+    from app.models import Paper, ResearchPlan
+
     data = json.loads(SAVE.read_text())
     plan = ResearchPlan(**data["plan"])
     papers = [Paper(**p) for p in data["papers"]]
@@ -53,4 +64,4 @@ elif mode == "evidence":
     print_times(times)
 
 else:
-    sys.exit("Usage: python run.py [full|evidence]")
+    sys.exit("Usage: python run.py [full|ids|evidence]")

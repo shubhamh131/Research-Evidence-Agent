@@ -18,7 +18,8 @@ STOPWORDS = {
     "on",
     "with",
 }
-ML_CATEGORIES = "(cat:cs.LG OR cat:cs.CL OR cat:cs.AI OR cat:stat.ML)"
+ML_CATEGORIES = "(cat:cs.LG OR cat:cs.CL OR cat:cs.AI OR cat:cs.CV OR cat:stat.ML)"
+ARXIV_CLIENT = arxiv.Client(delay_seconds=3, num_retries=3)
 
 
 def build_arxiv_query(query: str) -> str:
@@ -30,7 +31,6 @@ def build_arxiv_query(query: str) -> str:
 
 
 def search_arxiv(query: str, max_results: int = 5) -> list[Paper]:
-    client = arxiv.Client()
     search = arxiv.Search(
         query=build_arxiv_query(query),
         max_results=max_results,
@@ -38,7 +38,7 @@ def search_arxiv(query: str, max_results: int = 5) -> list[Paper]:
     )
 
     papers = []
-    for r in client.results(search=search):
+    for r in ARXIV_CLIENT.results(search=search):
         paper = Paper(
             title=r.title,
             abstract=r.summary.replace("\n", " "),

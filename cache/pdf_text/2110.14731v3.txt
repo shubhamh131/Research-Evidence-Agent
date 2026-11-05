@@ -1,0 +1,532 @@
+VISION TRANSFORMERS FOR CLASSIFICATION OF BREAST ULTRASOUND IMAGES
+Behnaz Gheflati and Hassan Rivaz
+Department of Electrical and Computer Engineering, Concordia University, Canada
+ABSTRACT
+Medical ultrasound (US) imaging has become a prominent
+modality for breast cancer imaging due to its ease-of-use,
+low-cost and safety. In the past decade, convolutional neu-
+ral networks (CNNs) have emerged as the method of choice
+in vision applications and have shown excellent potential in
+automatic classification of US images. Despite their success,
+their restricted local receptive field limits their ability to learn
+global context information.
+Recently, Vision Transformer
+(ViT) designs that are based on self-attention between im-
+age patches have shown great potential to be an alternative
+to CNNs. In this study, for the first time, we utilize ViT to
+classify breast US images using different augmentation strate-
+gies. The results are provided as classification accuracy and
+Area Under the Curve (AUC) metrics, and the performance
+is compared with the state-of-the-art CNNs. The results in-
+dicate that the ViT models have comparable efficiency with
+or even better than the CNNs in classification of US breast
+images.
+Index Terms—
+Vision Transformer (ViT), Transfer
+Learning (TL), Convolutional Neural Network (CNN), Ultra-
+sound Imaging, Image Classification
+1. INTRODUCTION
+Breast cancer is the most frequent cause of cancer mortality
+among women, making annual breast cancer screening essen-
+tial for early detection and reducing the death rate. In recent
+years, ultrasound (US) imaging has become one of the most
+promising modalities due to its availability, real-time display,
+cost-efficiency, and non-invasive nature. Over the previous
+decades, US imaging has shown great potential in automated
+breast lesion classification, segmentation, and detection tasks.
+Automated analysis of medical images will help the radiolo-
+gist to detect masses in US images and reduce the number of
+false negative readings in a cost-efficient way [1, 2].
+Deep learning has lately become a leading tool in various
+research domains. Convolutional Neural Networks (CNNs)
+have been the most common networks for automatic medical
+image analysis applications such as image classification in re-
+cent years. However, due to their localized receptive fields,
+these models have a poor performance in learning the long-
+range information, limiting their capabilities for vision tasks
+[3].
+The Transformer architecture, provided by Vaswani et al.
+[4] is currently the dominant model in the field of natural lan-
+guage processing (NLP). Motivated by the success of the self-
+attention based deep neural networks of Transformer models
+in NLP, Dosovitskiy et al. [5] introduced the Vision Trans-
+former (ViT) architecture for the image classification appli-
+cation. The overall training process in these models is based
+on splitting the input image into patches and treating each
+embedded patch as a word in NLP. These models use self-
+attention modules to learn the relation between these embed-
+ded patches [3].
+Herein, we take a step forward in exploiting Transformers
+in US medical image analysis and explore the potential appli-
+cation of self-attention based architectures to classify breast
+US images. In particular, we compared different pre-trained
+ViT models with different sizes and configurations based on
+their performance when fine-tuning for a downstream task.
+We then transfer these models for our specific task based on
+the US dataset. In addition, we also fine-tune our dataset
+based on the state-of-the-art (SOTA) CNNs. The results show
+the great potential of ViT models in breast US image classifi-
+cation. To the best of our knowledge, this is the first study to
+investigate the performance of ViT architectures on the clas-
+sification of US breast images.
+2. RELATED WORK
+2.1. CNN-based classification networks
+During the past decade, CNNs have been used as a standard
+technique for medical image classification applications. Sev-
+eral studies have been conducted to benefit from the freely
+available CNN models pre-trained on a large amount of train-
+ing data and transferring the pre-trained models for US im-
+age classification [6, 7]. In a comparative study conducted by
+Hatamizadeh et al. [3], they studied using transfer learning
+(TL) for VGG-16 [8] and IncpectionV3 [9] to detect lesions
+in breast US images. Another study [1], compared the perfor-
+mance of TL based on VGG16, ResNet [10], Inception, and
+NASNet [11] for breast masses classification in US images
+and showed the higher performance of the NASNET compar-
+ing to the other CNNs.
+Despite the success of CNNs in image processing applica-
+arXiv:2110.14731v3  [cs.CV]  12 Feb 2025
+
+tions, ViT models have shown superior performance to CNNs.
+The reason is that they lack some of the inductive biases of
+CNNs, such as the translation equivalence property of local
+convolutions.
+2.2. Vision Transformer (ViT)
+Vision Transformers firstly introduced by Dosovitskiy et
+al. [5] have shown outperforming performance comparing
+to SOTA CNNs in image classification applications when
+trained on a large scale training dataset. Despite the weaker
+inductive bias of Transformers than CNNs, these networks
+show competitive results with SOTA CNNs. Nevertheless,
+the high demand for large amounts of training data and com-
+putational resources limits the modification of these net-
+works. To tackle this problem, Touvron et al.[12] introduced
+a data-efficient ViT, based on the data augmentation and reg-
+ularization techniques previously employed for CNNs.
+In
+addition, they improved the performance of ViT by using a
+Transformer-based teacher-student approach for the image
+classification task.
+Considering the high performance of ViTs, many re-
+searchers have studied ViT models in various vision tasks
+[13]. In the area of object detection, Carion et al. [14] pro-
+posed a new architecture for object detection systems using a
+set-based global loss and a Transformer encoder-decoder al-
+gorithm and showed on par results with the dominant R-CNN
+method on the challenging COCO dataset.
+In image segmentation, a free convolution network,
+purely based on the attention-based algorithms, was provided
+for 3D medical image segmentation [2]. Another recent study
+[3] has also leveraged the Transformer’s power in 3D medical
+image segmentation, providing a novel U-Net Transformer
+architecture employing the advantages of both U-Net and
+Transformer networks in image segmentation and global at-
+tention feature of Transformers. In their work, a Transformer
+and a CNN-based architecture are used as encoder and de-
+coder, respectively. In another study [15], by Dai et al. to
+employ both CNN localized receptive fields for low-level
+feature extractions and large-scale attention of Transformers,
+an algorithm composed of both CNNs and Transformers has
+been provided to classify multi-modal images. They showed
+that this strategy outperforms other SOTA CNN-based net-
+works.
+Although many efforts have been made to improve the
+ViT-based models, and many ViT models pre-trained on
+large-scale datasets are freely available, there is still a ques-
+tion about choosing a pre-trained model for TL. There are
+many choices regarding model size and different configura-
+tions to select a model and fine-tune the weights based on the
+new dataset.
+As shown in [16], pre-training of a ViT model can be per-
+formed under various settings on different datasets, and any of
+these settings results in different performances. In this regard,
+(b) Benign
+(b) Malignant
+(c) Normal
+Fig. 1. Example of breast US images with three different clas-
+sifications.
+Steiner et al. provide a large number of pre-trained ViT mod-
+els with different sizes and also hybrids with ResNets on the
+various dataset sizes, ImageNet-1k and Imagenet-21k. Their
+suggestion is to select a few pre-trained models with high per-
+formance when fine-tuning for an upstream task as recom-
+mended models. Then, instead of adapting all the pre-trained
+Transformers, which is an extensive task, one can choose the
+model from these recommended models with the best perfor-
+mance for further adaptation.
+3. METHODS
+The overall procedure of our work in this paper is based on
+the method provided in [16], discussed in the previous sec-
+tion. We transferred the recommended models pre-trained ViT
+models and adapted the best one based on our specific data
+task.
+3.1. Dataset and evaluation metrics
+The data used in this study includes two different datasets
+on breast US images. The first dataset is published online
+by Al-Dhabyani et al. [17], which has 780 breast US im-
+ages (referenced as BUSI), collected from 600 women with
+an average image size of 500 x 500 pixels. The dataset con-
+sists of 133 normal images, 437 malignant masses, and 210
+benign tumors.
+The second dataset, considered as dataset
+B [18], includes 163 images, with an average size of 760 x
+570 pixels, categorized in two classes, 110 benign masses,
+and 53 cancerous masses. Examples of breast US images
+are shown in Figure 1. The performance metrics we use for
+evaluation purposes are common metrics employed in med-
+ical image classification studies [6], including classification
+accuracy (Acc) and area under the receiver operating charac-
+teristic curve (AUC).
+3.2. ViT architecture
+Following the procedure suggested in [16], the established ar-
+chitecture is the same as the original ViT design introduced
+by [5], except for substituting the MLP head with a linear
+classifier. An overview of the ViT design architecture is pre-
+sented in Figure 2. In summary, the input image is split into
+
+Fig. 2. Overview of the vision Transformer used in classifica-
+tion of breast US.
+patches in a ViT model. A sequence of 1D patch embeddings
+is fed to the Transformer encoder, where self-attention mod-
+ules are utilized to calculate the relation-based weighted sum
+of the outputs of each hidden layer. Consequently, this strat-
+egy allows the Transformers to learn global dependencies in
+the input images.
+3.3. Models
+For transfer learning of CNNs, we use the primarily pre-
+trained CNN networks in classification, including VGG16
+[8], ResNet50 [10], InceptionV3 [9], and NASNetLarge [11]
+based on the breast US dataset. Consequently, we compare
+the CNN-based and ViT-based architectures results.
+Furthermore, the TL approach for Transformer-based
+models is based on the recommended models provided by
+[16], including the main ViT models with different sizes
+from [5, 12] (ViT-Ti, ViT-S, ViT-B), and also the hybrid
+ViT+ResNet models (R+Ti, R26+S) from [16], with the
+specifications provided in Table 1 and Table 2 of [16]. In
+these models Ti, S, B are the representations of tiny, small
+and based models [5], and the models including R, represents
+the ViT+ResNet hybrid models.
+3.4. Fine-tuning details
+We perform a three-classes classification task of benign, ma-
+lignant or normal. We split all datasets to 85% and 15% for
+training and testing, respectively. All experiments are con-
+ducted on the fixed training and testing dataset for compari-
+son purposes. The 5-fold cross-validation (CV) is used for the
+final evaluation.
+In CNN TL experiments, the output layer is altered with a
+classifier with the softmax activation function. The optimizer
+used is the Adam, and the models are trained for 30 epochs
+(with early stopping).
+For ViT models, fine-tuning is performed based on the
+code provided in [16], with some pre-processing modifica-
+tions based on the unique physical characteristics of the US
+Table 1. Comparing the performance of CNN models using
+TL on the classification of BUSI+B dataset (best values in
+bold font).
+Evaluation
+ResNet
+VGG
+Inception
+NASNET
+Acc
+85.3%
+82%
+80%
+79%
+AUC
+0.94
+0.92
+0.92
+0.917
+Table 2. Comparing the performance of recommended ViT
+Models using TL on the classification of BUSI+B dataset
+(best values in bold font).
+Evaluation
+R+Ti/16
+S/32
+B/32
+Ti/16
+R26+S/16
+Acc
+85.7%
+86%
+86.7%
+85%
+86.4%
+AUC
+0.94
+0.95
+0.95
+0.94
+0.95
+images. The loss function we use is a weighted cross-entropy
+loss to handle our imbalanced training dataset, optimized by
+stochastic gradient descent (SGD) with 0.9 for momentum.
+For fine-tuning, a batch size of 128 and a cosine decay learn-
+ing rate starting from 0.001 with 10 linear warmup steps are
+selected, and the algorithm is run for 250 steps (with early
+stopping).
+A summary of our method is as follows:
+• Classification of BUSI+B dataset using TL based on CNN
+models.
+• Classification of BUSI+B dataset using TL based on ViT-
+based networks.
+• Classification of augmented BUSI+B dataset using TL
+based on ViT-based networks.
+• Classification of three B, BUSI, and BUSI+B datasets us-
+ing TL based on two ViT-based and CNN networks.
+4. RESULTS
+We tested the CNNs and ViT models for transferring pre-
+trained models to classify breast US images into three cate-
+gories: benign, malignant, and normal.
+4.1. Convolutional neural network (CNN) models
+The classification accuracy (Acc) and AUC results for differ-
+ent CNN models on the breast US dataset are reported in Ta-
+ble 1. This table demonstrates that among different SOTA
+CNN networks, including ResNet50 [10], VGG16 [8], In-
+ception [9], and NASNET [11], employing TL based on the
+ResNet50 model has the best results with 85.3% Acc and 0.95
+AUC.
+4.2. ViT-based models
+Table 2 shows the classification results for ViT models using
+TL.
+
+Table 3. Comparing the performance of recommended ViT
+Models using TL on the classification of BUSI+B dataset with
+augmentation.
+Evaluation
+R+Ti/16
+S/32
+B/32
+Ti/16
+R26+S/16
+Acc
+82%
+82%
+81%
+78%
+80%
+AUC
+0.92
+0.92
+0.91
+0.9
+0.91
+Firstly, this table illustrates the achievement of transfer-
+ring pre-trained self-attention based models on breast US im-
+ages classification with more than 85% Acc for all ViT mod-
+els. The best accuracy and AUC are 86.7% and 0.95 for B/32
+model, respectively.
+The classification performance obtained from the TL of
+ViT models (Table 2) and CNN models (Table 1) shows com-
+parable or even better results for ViT models than the corre-
+sponding results for the SOTA CNN networks. According to
+these tables, the best results of CNN networks (ResNet) are
+comparable with the results of ViT models, whereas for the
+other CNN models (VGG, Inception, and NASNET), the ViT
+networks have a better performance. These findings indicate
+the representation power of attention-based models in the area
+of US images analysis.
+The interesting point in our results is the small size of the
+dataset used for pre-training compared to the larger size of
+dataset used for fine-tuning in [16], which shows the potential
+power of attention-based models in medical US images anal-
+ysis. The possible reason for the effectiveness of ViT models
+on such a small US dataset might be that, unlike natural im-
+ages, the relation between spatial information or more specif-
+ically the large-scale dependencies between different patches
+are much more explicit in US images.
+The important observation is that the results for different
+ViT architectures are almost the same, about 86% Acc and
+0.95 corresponding AUC. This similarity between different
+model outcomes indicates that a smaller model with fewer
+number of parameters would be more beneficial in terms of
+fine-tuning duration and the computational cost. Therefore,
+we choose B/32, a relatively small ViT architecture with the
+best Acc and AUC in the rest of our experiments.
+4.3. Data-augmentation
+In the next step, we examined the effect of using data aug-
+mentation techniques on the classification performance when
+fine-tuning the ViT models. Due to the special physical char-
+acteristics of US images, the augmentation techniques that
+can be applied are limited. In particular, we use light crop-
+ping, rotation, brightness, and contrast. As presented in Table
+3, in consistence with the results presented in Figure 1 of [16],
+augmentation does not make any improvement in transferring
+pre-trained ViT models.
+Table 4.
+Comparing the performance of B/32 andResNet
+Models using TL on the classification of BUSI, B, and
+BUSI+B datasets (best values in bold font).
+Dataset
+Evaluation
+B/32
+ResNet
+B
+Acc
+74%
+79%
+AUC
+0.8
+0.84
+BUSI
+Acc
+82%
+83%
+AUC
+0.91
+0.92
+BUSI+B
+Acc
+86.7%
+85.3%
+AUC
+0.95
+0.94
+4.4. Breast US datasets
+We also tested the B/32 and Resnet50 models on the classi-
+fication of different datasets: dataset B, BUSI, and BISI+B.
+The results are mentioned in Table 4, in which for both mod-
+els, the Acc and AUC or dataset BUSI+B outperform the cor-
+responding results for datasets BUSI and B.
+Based on Table 4, the best results for both networks are
+observed when both datasets, BUSI+B, are used for fine-
+tuning. This is because more training data leads to a better
+generalization of the model. Also, the difference between the
+results of BUSI and BUSI+B is much less than that of datasets
+B and BUSI+B, considering the smaller size of dataset B with
+just two categories of breast US images, malignant vs. be-
+nign.
+5. CONCLUSION
+In this study, we apply Transformer-based structures to breast
+US images for the breast lesion classification task for the first
+time. Since ViT models require a large-scale dataset for train-
+ing and the size of medical imaging is relatively small, we
+use the strategy of transferring pre-trained ViT models for
+further adaptation. We compare our outcomes with the cor-
+responding performance of the SOTA CNNs and show that
+attention based ViT models achieve comparable performance
+with CNN methods. This study shows the potential of ViT
+models in US image classification and, therefore, the effec-
+tiveness of learning the global anatomical dependencies of
+US medical images. The results presented in this study open
+new windows for using self-attention based architectures as
+an alternative to CNNs in various US medical image analysis
+tasks.
+6. COMPLIANCE WITH ETHICAL STANDARDS
+Ethical approval was *not* required as this research study
+was conducted retrospectively using human subject data made
+available in an open access article [17], under the CC BY li-
+cense (http:// creativecommons.org/licenses/by/4.0/).
+
+7. ACKNOWLEDGMENTS
+We acknowledge the support of the Natural Sciences and En-
+gineering Research Council of Canada (NSERC), and thank
+NVIDIA for the donation of the GPU.
+8. REFERENCES
+[1] Walid Al-Dhabyani,
+Mohammed Gomaa,
+Hussien
+Khaled, and Fahmy Aly, “Deep learning approaches for
+data augmentation and classification of breast masses
+using ultrasound images,” Int. J. Adv. Comput. Sci. Appl,
+vol. 10, no. 5, pp. 1–11, 2019.
+[2] Davood Karimi, Serge Vasylechko, and Ali Gholipour,
+“Convolution-free medical image segmentation using
+transformers,” arXiv preprint arXiv:2102.13645, 2021.
+[3] Ali Hatamizadeh,
+Dong Yang,
+Holger Roth,
+and
+Daguang Xu, “Unetr: Transformers for 3d medical im-
+age segmentation,”
+arXiv preprint arXiv:2103.10504,
+2021.
+[4] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser,
+and Illia Polosukhin, “Attention is all you need,” in Ad-
+vances in neural information processing systems, 2017,
+pp. 5998–6008.
+[5] Alexey
+Dosovitskiy,
+Lucas
+Beyer,
+Alexander
+Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas
+Unterthiner, Mostafa Dehghani, Matthias Minderer,
+Georg Heigold, Sylvain Gelly, et al., “An image is worth
+16x16 words: Transformers for image recognition at
+scale,” arXiv preprint arXiv:2010.11929, 2020.
+[6] Jorge F Lazo, Sara Moccia, Emanuele Frontoni, and
+Elena De Momi,
+“Comparison of different cnns for
+breast tumor classification from ultrasound images,”
+arXiv preprint arXiv:2012.14517, 2020.
+[7] Ali KZ Tehrani, Mina Amiri, Ivan M Rosado-Mendez,
+Timothy J Hall, and Hassan Rivaz,
+“A pilot study
+on scatterer density classification of ultrasound images
+using deep neural networks,”
+in 2020 42nd Annual
+International Conference of the IEEE Engineering in
+Medicine & Biology Society (EMBC). IEEE, 2020, pp.
+2059–2062.
+[8] Karen Simonyan and Andrew Zisserman, “Very deep
+convolutional networks for large-scale image recogni-
+tion,” arXiv preprint arXiv:1409.1556, 2014.
+[9] Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe,
+Jon Shlens, and Zbigniew Wojna, “Rethinking the in-
+ception architecture for computer vision,” in Proceed-
+ings of the IEEE conference on computer vision and pat-
+tern recognition, 2016, pp. 2818–2826.
+[10] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian
+Sun, “Deep residual learning for image recognition,” in
+Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2016, pp. 770–778.
+[11] Barret Zoph, Vijay Vasudevan, Jonathon Shlens, and
+Quoc V Le,
+“Learning transferable architectures for
+scalable image recognition,” in Proceedings of the IEEE
+conference on computer vision and pattern recognition,
+2018, pp. 8697–8710.
+[12] Hugo Touvron, Matthieu Cord, Matthijs Douze, Fran-
+cisco Massa, Alexandre Sablayrolles, and Herv´e J´egou,
+“Training data-efficient image transformers & distilla-
+tion through attention,” in International Conference on
+Machine Learning. PMLR, 2021, pp. 10347–10357.
+[13] Shuang Yu, Kai Ma, Qi Bi, Cheng Bian, Munan Ning,
+Nanjun He, Yuexiang Li, Hanruo Liu, and Yefeng
+Zheng, “Mil-vt: Multiple instance learning enhanced
+vision transformer for fundus image classification,” in
+International Conference on Medical Image Computing
+and Computer-Assisted Intervention. Springer, 2021,
+pp. 45–54.
+[14] Nicolas Carion, Francisco Massa, Gabriel Synnaeve,
+Nicolas Usunier,
+Alexander Kirillov,
+and Sergey
+Zagoruyko,
+“End-to-end object detection with trans-
+formers,” in European Conference on Computer Vision.
+Springer, 2020, pp. 213–229.
+[15] Yin Dai, Yifan Gao, and Fayu Liu, “Transmed: Trans-
+formers advance multi-modal medical image classifica-
+tion,” Diagnostics, vol. 11, no. 8, pp. 1384, 2021.
+[16] Andreas Steiner, Alexander Kolesnikov, Xiaohua Zhai,
+Ross Wightman, Jakob Uszkoreit, and Lucas Beyer,
+“How to train your vit? data, augmentation, and reg-
+ularization in vision transformers,”
+arXiv preprint
+arXiv:2106.10270, 2021.
+[17] Walid Al-Dhabyani,
+Mohammed Gomaa,
+Hussien
+Khaled, and Aly Fahmy, “Dataset of breast ultrasound
+images,” Data in brief, vol. 28, pp. 104863, 2020.
+[18] Moi Hoon Yap, Gerard Pons, Joan Mart´ı, Sergi Ganau,
+Melcior Sent´ıs, Reyer Zwiggelaar, Adrian K Davison,
+and Robert Marti, “Automated breast ultrasound lesions
+detection using convolutional neural networks,” IEEE
+journal of biomedical and health informatics, vol. 22,
+no. 4, pp. 1218–1226, 2017.

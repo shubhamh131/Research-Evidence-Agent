@@ -7,8 +7,12 @@ from app.evidence import gather_evidence
 from app.planner import make_plan
 from app.prefilter import embed_filter
 from app.screen import screen_papers
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
 
+set_llm_cache(SQLiteCache(database_path="cache/llm.db"))
 TIMES = {}
+set_llm_cache(SQLiteCache(database_path="cache/llm.db"))
 
 
 def timed(name, fn):

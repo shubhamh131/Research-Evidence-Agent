@@ -1,0 +1,1841 @@
+Entropy-Guided Token Dropout: Training Autoregressive Language
+Models with Limited Domain Data
+Jiapeng Wang1*
+Yiwen Hu1*
+Yanzipeng Gao1
+Haoyu Wang1
+Shuo Wang2
+Hongyu Lu3
+Jiaxin Mao1
+Wayne Xin Zhao1†
+Junyi Li4†
+Xiao Zhang1†
+1Gaoling School of Artificial Intelligence, Renmin University of China.
+2Tsinghua University. 3WeChat, Tencent.
+4Department of Data Science, City University of Hong Kong.
+wangjp1010@ruc.edu.cn, batmanfly@gmail.com
+Abstract
+As access to high-quality, domain-specific data
+grows increasingly scarce, multi-epoch train-
+ing has become a practical strategy for adapt-
+ing large language models (LLMs). However,
+autoregressive models often suffer from perfor-
+mance degradation under repeated data expo-
+sure, where overfitting leads to a marked de-
+cline in model capability. Through empirical
+analysis, we trace this degradation to an imbal-
+ance in learning dynamics: predictable, low-
+entropy tokens are learned quickly and come
+to dominate optimization, while the model’s
+ability to generalize on high-entropy tokens de-
+teriorates with continued training. To address
+this, we introduce EntroDrop, an entropy-
+guided token dropout method that functions
+as structured data regularization. EntroDrop
+selectively masks low-entropy tokens during
+training and employs a curriculum schedule to
+adjust regularization strength in alignment with
+training progress. Experiments across model
+scales from 0.6B to 8B parameters show that
+EntroDrop consistently outperforms standard
+regularization baselines and maintains robust
+performance throughout extended multi-epoch
+training. These findings underscore the im-
+portance of aligning regularization with token-
+level learning dynamics when training on lim-
+ited data. Our approach offers a promising
+pathway toward more effective adaptation of
+LLMs in data-constrained domains.
+1
+Introduction
+The scaling of large language models (LLMs)
+has been the primary driver of recent advance-
+ments in artificial intelligence, with performance
+improvements largely correlated with increases in
+model size and training corpus volume (Kaplan
+et al., 2020; Hoffmann et al., 2022). However, this
+paradigm faces a fundamental bottleneck: the “to-
+ken crisis”. The supply of high-quality human text
+* Equal contribution.
+† Corresponding author.
+available on the internet is finite and rapidly ap-
+proaching depletion (Villalobos et al., 2022). This
+scarcity is particularly acute in high-value, spe-
+cialized domains (e.g., mathematical proofs, le-
+gal briefs, complex agent trajectories) (Van, 2023;
+Lu et al., 2024; Ling et al., 2025), where expert-
+level data is inherently limited and cannot be easily
+scaled. Consequently, the field faces an urgent
+question: How can we continue advancing model
+capabilities when the supply of relevant token data
+is strictly limited?
+To mitigate data scarcity, a widely adopted and
+straightforward method is multi-epoch training, in
+which models are repeatedly trained on the same
+dataset over multiple passes.
+Recent studies, however, indicate that autoregres-
+sive (AR) models are prone to “multi-epoch train-
+ing degradation” — repeated exposure to identical
+sequences tends to cause overfitting and superficial
+memorization, rather than meaningful generaliza-
+tion (Xue et al., 2023; Hernandez et al., 2022;
+Muennighoff et al., 2023). In contrast to human
+learners, who deepen and refine their understanding
+through repeated exposure, autoregressive models
+tend to degenerate into pattern-specific memoriza-
+tion. When trained repeatedly on the same data,
+they often fail to learn robust, transferable repre-
+sentations of the underlying data distribution.
+More recently,
+diffusion language models
+(DLMs) (Ho et al., 2020; Yu et al., 2025; Nie et al.,
+2025) have emerged as a compelling alternative
+to AR models. Unlike AR approaches, DLMs are
+trained to reconstruct data from noise-corrupted
+inputs. By modeling the data distribution via an
+iterative denoising process, DLMs are essentially
+exposed to a substantially larger set of effective
+training signals derived from the same underlying
+corpus. Building on this insight, recent investiga-
+tions have attempted to transplant this strategy into
+AR models. Notably, prior studies (Ni et al., 2025;
+Gao et al., 2025) explored incorporating DLM-
+1
+arXiv:2512.23422v1  [cs.CL]  29 Dec 2025
+
+style input masking into AR architectures. They
+have shown that applying random input masking
+(i.e., token-level dropout) during multi-epoch train-
+ing can induce data diversity and variation similar
+to those observed in DLMs.
+However, directly adopting this vanilla approach
+may entail significant limitations. First, uniformly
+dropping random tokens treats all tokens as equally
+informative, ignoring their distinct functional roles
+within a context. Intuitively, a more effective strat-
+egy would account for the varying impact of mask-
+ing tokens of differing importance—for instance,
+by prioritizing tokens that are semantically or struc-
+turally critical. Second, applying uniform token
+dropout from the outset introduces strong input-
+level regularization that can disrupt early-stage op-
+timization. This often leads to substantially slower
+initial convergence: models tend to underperform
+standard AR baselines in early epochs and require
+extended training to recover, thereby compromis-
+ing overall training efficiency.
+To address these limitations,
+we propose
+Entropy-guided Token Dropout (EntroDrop), a
+principled approach designed to improve the utility
+of scarce data. Specifically tailored to the scarce
+subset rather than the entire corpus, our method is
+both adaptive and content-aware, employing two
+key techniques: (1) Entropy-guided targeting: In-
+stead of uniform random dropout, we prioritize
+masking low-entropy tokens—those predicted with
+high confidence across contexts. These tokens,
+which are accurately modeled early in training, of-
+fer diminishing returns with repeated exposure. By
+selectively masking them, we reduce redundant
+supervision in predictable regions and preserve
+high-entropy tokens that carry more informative
+gradients. This encourages the model to focus its
+learning capacity on uncertain, semantically rich
+content. (2) Curriculum-based scheduling: We in-
+troduce a dynamic schedule that synchronizes with
+the model’s learning trajectory. This ensures high
+training efficiency and lossless performance rela-
+tive to standard baselines during the initial phase,
+while progressively intensifying regularization in
+later stages to effectively counteract overfitting. As
+a result, the model sustains informative learning for
+a longer duration and ultimately achieves superior
+performance.
+Extensive experiments on models ranging from
+0.6B to 8B parameters demonstrate the benefits of
+our approach. Results show that EntroDrop sub-
+stantially prolongs the beneficial training horizon
+on scarce data, delaying the performance collapse
+typically observed in standard multi-epoch train-
+ing. On mathematical reasoning and code gen-
+eration benchmarks, our method consistently out-
+performs strong regularization baselines, such as
+hidden dropout, weight decay and NEFTune, while
+preserving the model’s general capabilities. We
+view these results as an initial step toward more
+effective utilization of limited training data, and
+plan to further investigate the scalability of this
+approach under larger datasets and broader experi-
+mental settings.
+2
+Preliminary Study
+In this section, we investigate the learning dynam-
+ics of LLMs when scaling limited domain-specific
+data through multi-epoch training under continual
+pre-training (CPT). We aim to empirically recon-
+cile the trade-off between training sufficiency and
+overfitting, and subsequently analyze the mecha-
+nism of performance degradation using token en-
+tropy as a diagnostic signal.
+RQ1: Is multi-epoch training beneficial for
+scarce data?
+We first examine whether repeat-
+edly training on a limited corpus can yield perfor-
+mance gains before overfitting. To this end, we
+construct a controlled training corpus consisting
+of a small domain-specific dataset (Dmath, 0.1B
+unique math tokens) and a substantially larger
+pool of general-domain data (Dgeneral). Specif-
+ically, we adjust the volume of Dgeneral to main-
+tain a total compute budget of 5B tokens, set-
+ting |Dgeneral| = 5B −(N · |Dmath|), where
+N ∈[1, 30] is the number of epochs for the math
+dataset. This design ensures that any observed per-
+formance variance is attributable to the frequency
+of domain-specific data exposure rather than the
+total number of training tokens. Figure 1a presents
+mathematical reasoning accuracy as a function of
+the repetition factor. We observe that increasing
+the repetition of Dmath consistently improves per-
+formance, with the model trained for 30 epochs
+significantly outperforming the single-epoch base-
+line. These results indicate that in data-constrained
+scenarios, single-pass training may provide insuffi-
+cient learning signal, and that multi-epoch training
+can be an effective mechanism for improving do-
+main performance.
+RQ2: Does excessive repetition harm perfor-
+mance?
+While data repetition facilitates initial
+2
+
+250
+500
+750
+1000
+1250
+1500
+Training Step
+38
+40
+42
+44
+46
+48
+Math Accuracy
+1 Epoch
+5 Epochs
+10 Epochs
+20 Epochs
+30 Epochs
+(a) Performance Scaling w.r.t. Epochs
+50
+100
+150
+Epoch
+42.5
+43.0
+43.5
+44.0
+44.5
+Math Accuracy
+Accuracy
+Validation Loss
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+1.00
+Validation Loss
+(b) Accuracy vs. Validation Loss
+0
+500
+1000
+1500
+Training Step
+0.0
+0.5
+1.0
+1.5
+2.0
+Cross-Entropy Loss
+High-Entropy
+Low-Entropy
+Average
+(c) Loss Dynamics via Token Entropy
+Figure 1: Preliminary analysis of learning dynamics under multi-epoch training with limited data. (a) Under a fixed
+compute budget, increasing the number of training epochs (up to a certain point) for domain-specific data Dmath
+consistently improves accuracy, demonstrating that multi-epoch training is essential for data-constrained scenarios.
+(b) Excessive repetition eventually leads to performance degradation; accuracy declines as validation loss begins to
+rise. (c) A fine-grained analysis reveals that loss on low-entropy tokens remains stable and near zero, whereas loss
+on high-entropy tokens rebounds significantly after an initial decrease.
+learning, extended training on the same corpus
+may also introduce performance degradation. Fig-
+ure 1b reports mathematical accuracy and valida-
+tion loss over a prolonged training horizon (up
+to 180 epochs).
+We observe that accuracy in-
+creases during early training, peaks at around 50
+epochs, and subsequently declines sharply with
+continued repetition. This behavior illustrates a
+phenomenon we refer to as multi-epoch degrada-
+tion: although repetition is beneficial for extracting
+signal from limited data, excessive exposure can
+eventually push the model away from the general-
+ization regime toward overfitting.
+RQ3: What characterizes the degradation pro-
+cess?
+To investigate the mechanisms underlying
+performance degradation induced by excessive rep-
+etition, we adopt a fine-grained analysis that ex-
+amines how learning dynamics differ across com-
+ponents of the input. As one such perspective,
+we analyze training behavior at the token level,
+distinguishing tokens by their information density.
+Specifically, we split the validation tokens into low-
+entropy (top 50% confidence) and high-entropy
+(bottom 25% confidence) groups based on the base
+model’s likelihoods. Figure 1c shows a clear diver-
+gence in their loss trajectories. The loss on low-
+entropy tokens quickly drops and remains near zero,
+indicating stable and accurate modeling throughout
+training even under heavy repetition. Conversely,
+the loss on high-entropy tokens initially decreases,
+reaches a minimum and then rises markedly as
+training continues, reflecting a progressive deterio-
+ration in generalization. This divergence suggests
+that multi-epoch degradation does not stem from a
+uniform decline in model performance, but rather
+from an imbalance in how learning capacity is allo-
+cated across tokens. Continued repetition primarily
+reinforces well-modeled, low-entropy regions of
+the data, yielding diminishing returns, while perfor-
+mance on high-entropy tokens degrades over time.
+These observations suggest that mitigating multi-
+epoch degradation requires regularization mecha-
+nisms that are selective rather than uniform, explic-
+itly accounting for differences in token predictabil-
+ity and their distinct roles during training.
+3
+Methodology
+Building on the above analysis, we introduce
+entropy-guided token dropout (EntroDrop), a
+structured regularization approach for multi-epoch
+training on scarce domain-specific data.
+The
+method is motivated by the observation that per-
+formance degradation under repeated training is
+highly non-uniform: overfitting concentrates on
+predictable, low-entropy tokens that rapidly satu-
+rate, while generalization on high-entropy tokens
+deteriorates. Existing regularization strategies typi-
+cally ignore this imbalance and apply uniform per-
+turbations across tokens, leading to inefficient use
+of regularization capacity. To address this issue,
+our approach incorporates two key techniques: (1)
+an entropy-based targeting mechanism that selec-
+tively regularizes predictable tokens, and (2) a cur-
+riculum schedule that balances early-stage learning
+with late-stage regularization.
+3
+
+3.1
+Formulation
+Formally, let X = [x1, . . . , xT ] denote the se-
+quence of input embeddings for a training exam-
+ple drawn from the target-domain corpus. Token
+dropout is implemented by sampling a binary mask
+m ∈{0, 1}T , where mt = 0 indicates that the
+token at position t is suppressed.
+We fill masked positions with a mask token em-
+bedding ¯e, yielding the regularized input:
+˜xt = mt · xt + (1 −mt) · ¯e,
+(1)
+where ¯e is the static mean embedding of the vocabu-
+lary. The choice of ¯e is discussed in Appendix A.3.
+At each training step j, we sample a stochastic
+token dropout ratio γj ∼U(0, γ(j)
+max), where the
+upper bound γ(j)
+max is time-dependent and follows a
+curriculum schedule detailed in Section 3.3. Sam-
+pling γj from a range of sparsity levels exposes
+the model to varying degrees of contextual corrup-
+tion, promoting robustness to incomplete inputs
+while avoiding abrupt or overly aggressive regu-
+larization. Token dropout is applied exclusively
+to samples drawn from the scarce target-domain
+dataset Dtarget. All general-domain replay data
+remain unperturbed, ensuring stable background
+representations throughout training.
+3.2
+Entropy-guided Token Targeting
+The core module of our method is entropy-guided
+token targeting, which conditions token dropout
+on token predictability. As shown in Section 2,
+tokens within a corpus differ substantially in en-
+tropy. Low-entropy tokens, those predicted with
+high confidence, tend to converge rapidly to near-
+zero loss and remain well-modeled even under ex-
+tensive repetition, contributing diminishing learn-
+ing signal with continued optimization. In con-
+trast, performance degradation under multi-epoch
+training is primarily associated with high-entropy
+tokens, whose loss increases as training progresses.
+This asymmetry suggests that uniform random
+masking is poorly aligned with the observed degra-
+dation dynamics. Random perturbations may in-
+efficiently regularize already saturated regions or
+unnecessarily corrupt high-entropy tokens that are
+critical for generalization. To address this mis-
+match, we bias token dropout toward low-entropy
+tokens, selectively suppressing redundant supervi-
+sion while preserving informative gradients on less
+predictable regions.
+Concretely, we compute the contextual entropy
+H(xt) of each token using the base model and
+treat it as a proxy for token predictability. A binary
+targeting gate gt is then computed as:
+gt = I
+ H(xt) ≤Percentilek
+ H(X)
+
+,
+(2)
+where k specifies the fraction of lowest-entropy
+tokens eligible for regularization (e.g., the bottom
+50%). The final masking decision is sampled con-
+ditionally as follows:
+P(mt = 0) = γj · gt,
+(3)
+such that only tokens falling within the low-entropy
+subset are subject to dropout, and the overall inten-
+sity is controlled by the dropout ratio γj.
+By selectively masking predictable tokens,
+the model is trained on perturbed yet semanti-
+cally coherent contexts, which discourages over-
+specialization on memorized patterns. At the same
+time, supervision on uncertain and decision-critical
+tokens is preserved, enabling learning capacity to
+be directed toward regions where generalization re-
+mains more challenging. From a computational per-
+spective, entropy-guided targeting introduces mini-
+mal overhead. In the multi-epoch setting, entropy
+is computed once per sample and reused across
+epochs, amortizing the additional cost to less than
+1/N of the total training budget for N epochs.
+3.3
+Curriculum-based Dropout Schedule
+While targeted token dropout can mitigate redun-
+dancy, its effectiveness depends critically on both
+timing and intensity. Applying strong regulariza-
+tion too early in training can interfere with represen-
+tation learning and substantially slow convergence.
+Conversely, weak or delayed regularization in later
+stages may be insufficient to prevent the onset of
+memorization.
+To reconcile this trade-off, we introduce a cur-
+riculum schedule that synchronizes dropout inten-
+sity with the model’s learning dynamics. The max-
+imum allowable dropout rate at training step j is
+defined as
+γ(j)
+max =
+γmax
+1 + exp
+ −k · (j −j0)
+,
+(4)
+where γmax denotes the upper bound of the dropout
+ratio, k controls the sharpness of the transition,
+and j0 represents the characteristic training step at
+which regularization begins to dominate. In prac-
+tice, j0 is chosen to coincide with the regime where
+4
+
+the baseline transitions from productive learning to
+memorization-prone behavior, as estimated from a
+validation curve. This schedule ensures that early
+training proceeds in a near-lossless regime, en-
+abling efficient adaptation to the target domain,
+while regularization is progressively intensified
+when pronounced risk of memorization.
+3.4
+Discussion
+Entropy-guided token targeting and curriculum
+scheduling constitute a structured regularization ap-
+proach for multi-epoch training on scarce data. By
+adapting both where and when regularization is ap-
+plied, the method aims to better align regularization
+with observed training dynamics, enabling autore-
+gressive language models to make more effective
+use of limited corpora under repeated exposure.
+To clarify the optimization mechanism of token-
+level regularization, we conduct theoretical anal-
+ysis from the perspective of training gradients. A
+key finding reveals that with proper configuration
+of the masking rate and targeting parameters, Entro-
+Drop effectively reduces training gradient variance,
+laying a theoretical foundation for stable model
+training. Detailed proof and analyses can be found
+in the Appendix C.
+Theorem 1 (Gradient Variance Bound). Under
+assumptions listed in Table 5, the gradient vari-
+ance (w.r.t. model parameters θ) of the EntroDrop
+loss LM can be bounded by that of the loss L
+without token dropout:
+V(∇θLM(θ; x)) ≤V(∇θL(θ; x)) · (1 −γj · α)
++ G2 · (σ + δ)2 · (γj · α)2,
+where γj is the curriculum mask rate in Eq. (3),
+α := PT
+t=1 gt/T denotes the proportion of low-
+entropy tokens (with T as the input sequence
+length) governed by the percentile in gt in Eq. (2),
+and G, σ, δ are model and data parameters re-
+lated to gradient Lipschitz continuity and embed-
+ding properties (see Table 5).
+From the upper bound in Theorem 1, when the
+curriculum mask rate satisfies:
+γj ≤V(∇θL(θ; x))
+
+[G · (σ + δ)√α]2,
+we can obtain
+V(∇θLM(θ; x)) ≤V(∇θL(θ; x)),
+which implies that EntroDrop can achieve a lower
+gradient variance during training compared to the
+variance of the original (unmasked) gradient. This
+result demonstrates the effectiveness of the pro-
+posed token dropout in reducing gradient variance.
+Remark
+1
+(Token
+Dropout
+Supplements
+Data-Level Regularization).
+Theorem 1 also
+reveals that token dropout in our EntroDrop acts
+as an implicit regularizer by attenuating gradient
+variance (HaoChen et al., 2021), which helps
+suppress updates along high-curvature directions
+associated with overfitting (Jelassi and Li, 2022;
+Wu and Su, 2023).
+Existing regularization
+methods operate at the model level, achieving
+anti-overfitting by constraining parameters, opti-
+mizing network structures, or adjusting training
+logic (e.g., (Wu et al., 2021; Shen et al., 2020;
+Jain et al., 2024)).
+In contrast, our EntroDrop
+works at the data level: it achieves regularization
+effects by directly processing input data (e.g.,
+token-level manipulation), without altering the
+model’s architecture or training paradigm.
+Remark 2 (Gradient Variance Reduction Enhances
+Generalization). The gradient variance bound in
+Theorem 1 supports EntroDrop’s generalization ad-
+vantage: reducing gradient variance alleviates over-
+fitting during training by mitigating high-curvature
+updates (Neu et al., 2021). As shown in Figure 2, as
+training steps increase, baselines degrade rapidly,
+while EntroDrop enhances data utilization via sus-
+tained performance growth.
+4
+Experiments
+4.1
+Experimental Setup
+Models and Datasets. We evaluate our method
+based on several open-weight LLMs of varying
+scales and architectures, including Llama3.1-8B-
+Instruct (Team, 2024), Qwen3-0.6B and Qwen3-
+1.7B (Yang et al., 2025), on both math reasoning
+and code generation tasks. The math reasoning
+adopts a suite of standard benchmarks, including
+SVAMP (Patel et al., 2021), GSM8K (Cobbe et al.,
+2021), MATH (Hendrycks et al., 2021b), College-
+Math (Tang et al., 2024), and OlympiadBench (He
+et al., 2024). For code generation, we evaluate on
+HumanEval (Chen et al., 2021), MBPP (Tao et al.,
+2024), and LiveCodeBench V1 (Jain et al., 2025).
+We also evaluate the models on a suite of out-of-
+domain benchmarks: HellaSwag (Zellers et al.,
+2019) and PIQA (Bisk et al., 2020) (commonsense
+5
+
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+Training Step
+42.0
+42.5
+43.0
+43.5
+44.0
+44.5
+45.0
+45.5
+Avg. Math Accuracy (%)
+Baseline
+Hidden Dropout
+Weight Decay
+NEFTune
+EntroDrop
+(a) Effectiveness of Token Dropout
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+Training Step
+42
+43
+44
+45
+Avg. Math Accuracy (%)
+Baseline
+EntroDrop (Fixed)
+EntroDrop (Schedule)
+(b) Impact of Masking Schedule
+The given expression
+ is $ x^2 - 144$.
+ Recogn izing this as a difference
+ of squares ,
+ we can write :
+\[ x ^2 - 144 = x ^2 - 12^2 \]
+According
+ to the formula for the difference
+ of squares , $ a^2 - b ^2 = (a-b )(a+b )$ , we
+ can factor ize it as :
+\[ x ^2 - 12^2 = (x - 12)(x + 12) \]
+High Entropy (top 25%)
+Low Entropy (bottom 25%)
+(c) Entropy Visualization
+Figure 2: Analysis of learning dynamics. (a) Comparison with standard regularization: Our method (EntroDrop)
+significantly extends the effective training duration compared to baselines (e.g., NEFTune, weight decay) on
+Qwen3-0.6B. (b) Impact of masking ratio schedule: The dynamic curriculum schedule matches the baseline’s
+early learning efficiency while preventing collapse in later stages, outperforming a fixed ratio. (c) A representative
+mathematical reasoning example illustrating that high-entropy tokens often correspond to pivotal semantic steps,
+while low-entropy tokens represent predictable patterns.
+reasoning), ARC (Bhakthavatsalam et al., 2021)
+(scientific reasoning), MMLU (Hendrycks et al.,
+2021a) (general knowledge), and IFEval (Zhou
+et al., 2023) (instruction following) with preserving
+the model’s fundamental general capabilities. We
+use OpenCompass (Contributors, 2023) for evalua-
+tion.
+Baselines. We compare our method against several
+regularization baselines: hidden dropout (Srivas-
+tava et al., 2014), weight decay (Loshchilov and
+Hutter, 2019), and NEFTune (Jain et al., 2024).
+For in-depth analysis and ablation studies, we con-
+duct experiments by default on Qwen3-0.6B. De-
+tailed hyperparameters and implementation config-
+urations are provided in Appendix A.
+Training Settings. Our experiments are conducted
+under a continual pre-training (CPT) setting. For
+the 0.6B models, training is performed with a total
+budget of 3B tokens, while the 1.7B and 8B mod-
+els are trained with a budget of 1B tokens. Train-
+ing data consist of a mixture of target-domain and
+general-domain corpora with a fixed mixing ratio
+of 6:4. The target-domain corpus contains 0.02B
+unique tokens and is therefore reused across multi-
+ple epochs to satisfy the allocated token budget, re-
+sulting in repeated exposure over multiple training
+passes. The general-domain corpus is sufficiently
+large and is sampled with negligible repetition.
+4.2
+Main Results
+For a fair comparison, Table 1 reports results from
+the checkpoint with the highest domain-average
+score. All regularization methods achieve higher
+performance than the baseline in the target mathe-
+matical domain, and EntroDrop consistently yields
+the largest gains across all model backbones. For
+instance, on Qwen3-0.6B, EntroDrop improves the
+math domain average by +2.29% over the baseline,
+substantially outperforming weight decay (+0.49%)
+and NEFTune (+0.76%).
+Figure 2a illustrates the training dynamics of the
+mathematical benchmark score on Qwen3-0.6B.
+The baseline peaks early and then undergoes rapid
+performance degradation. Standard methods such
+as weight decay and NEFTune fail to mitigate this
+decline. In contrast, both hidden dropout and En-
+troDrop significantly extend the effective training
+window: performance continues to rise steadily,
+even after the baseline collapses, and ultimately
+surpasses the baseline’s peak, enabling more thor-
+ough and stable learning.
+Another crucial observation is the preservation
+of general capabilities. While standard regular-
+ization, including hidden dropout, often leads to
+performance degradation or catastrophic forgetting
+on general benchmarks, EntroDrop largely main-
+tains, and in some cases slightly improves, general-
+domain performance relative to the baseline. By
+preserving general domain tokens and pivotal se-
+mantic anchors, EntroDrop safeguards the model’s
+core reasoning and linguistic structures during do-
+main adaptation.
+Table 2 extends these findings to code generation.
+On Qwen3-0.6B, EntroDrop achieves an 11.62%
+relative improvement, confirming that the bene-
+fits of entropy-guided regularization generalize be-
+yond mathematical reasoning to other structured
+6
+
+Table 1: Main performance comparison on mathematical reasoning and general capability benchmarks. For a fair
+comparison, results are reported from the checkpoint with the highest domain-average score for each method. Our
+method consistently achieves superior accuracy in mathematical reasoning while effectively preserving or even
+enhancing general capabilities.
+Method
+Mathematical Reasoning
+General Capabilities
+Total Avg.
+SVAMP
+GSM8K
+MATH
+College
+Olym.
+Avg.
+Hella
+ARC-C
+PIQA
+MMLU
+IFEval
+Avg.
+Backbone: Qwen3-0.6B
+baseline
+78.9
+60.4
+40.6
+29.5
+13.2
+44.52
+45.0
+56.6
+68.3
+50.0
+44.3
+52.84
+48.68
+weight decay
+78.7
+60.3
+40.5
+29.7
+14.5
+44.74 (+0.49%)
+44.9
+55.9
+68.1
+49.9
+43.2
+52.40 (-0.83%)
+48.57 (-0.23%)
+hidden dropout
+80.7
+62.5
+40.2
+28.1
+13.5
+45.00 (+1.08%)
+43.9
+60.3
+68.8
+48.4
+35.5
+51.38 (-2.76%)
+48.19 (-1.01%)
+NEFTune
+79.5
+60.4
+41.1
+29.1
+14.2
+44.86 (+0.76%)
+45.0
+56.3
+67.7
+50.0
+42.7
+52.34 (-0.95%)
+48.60 (-0.16%)
+vanilla token dropout
+79.6
+63.0
+38.3
+29.1
+13.9
+44.78 (+0.58%)
+45.3
+55.6
+68.4
+49.2
+43.6
+52.42 (-0.79%)
+48.60 (-0.16%)
+EntroDrop
+81.3
+63.0
+38.9
+29.1
+15.4
+45.54 (+2.29%)
+45.3
+60.7
+68.5
+49.7
+42.5
+53.34 (+0.95%)
+49.44 (+1.56%)
+Backbone: Qwen3-1.7B
+baseline
+86.3
+74.4
+50.4
+36.7
+22.5
+54.06
+58.4
+77.6
+74.0
+62.8
+50.7
+64.69
+59.38
+weight decay
+86.7
+75.5
+50.6
+36.6
+23.0
+54.48 (+0.78%)
+58.4
+76.6
+74.0
+62.6
+52.3
+64.79 (+0.15%)
+59.64 (+0.44%)
+hidden dropout
+87.1
+75.8
+48.0
+36.1
+23.3
+54.06 (+0.00%)
+58.3
+78.0
+74.3
+62.5
+51.5
+64.96 (+0.42%)
+59.51 (+0.22%)
+NEFTune
+85.9
+73.2
+51.4
+37.2
+23.7
+54.28 (+0.41%)
+58.4
+77.6
+74.3
+62.7
+52.9
+65.17 (+0.74%)
+59.73 (+0.59%)
+vanilla token dropout
+86.6
+74.8
+51.1
+34.8
+23.0
+54.06 (+0.00%)
+58.2
+77.9
+73.6
+62.5
+52.7
+64.98 (+0.45%)
+59.52 (+0.23%)
+EntroDrop
+86.5
+75.4
+51.9
+36.4
+24.9
+55.02 (+1.78%)
+58.3
+77.0
+74.3
+62.7
+53.2
+65.09 (+0.62%)
+60.06 (+1.15%)
+Backbone: Llama3.1-8B-Instruct
+baseline
+86.2
+77.3
+41.4
+31.6
+16.7
+50.64
+73.1
+87.5
+79.9
+67.9
+69.8
+75.60
+63.14
+weight decay
+84.8
+81.3
+45.3
+31.5
+15.0
+51.58 (+1.86%)
+73.1
+85.7
+80.4
+66.9
+66.8
+74.58 (-1.35%)
+63.08 (-0.10%)
+hidden dropout
+86.2
+79.4
+42.4
+31.7
+17.3
+51.40 (+1.50%)
+73.4
+85.4
+80.4
+67.1
+67.4
+74.74 (-1.14%)
+63.07 (-0.11%)
+NEFTune
+87.0
+81.0
+42.5
+29.7
+14.2
+50.88 (+0.47%)
+73.1
+85.1
+81.0
+67.9
+66.4
+74.70 (-1.19%)
+62.79 (-0.55%)
+vanilla token dropout
+85.3
+79.2
+44.3
+31.3
+15.6
+51.14 (+0.99%)
+72.6
+85.1
+80.5
+68.2
+65.8
+74.44 (-1.53%)
+62.79 (-0.55%)
+EntroDrop
+86.2
+80.2
+44.2
+32.1
+16.1
+51.76 (+2.21%)
+73.1
+86.1
+80.9
+67.6
+69.7
+75.48 (-0.16%)
+63.62 (+0.76%)
+Table 2: Main performance comparison on code generation and general capability benchmarks using Qwen-0.6B.
+Method
+Code Generation
+General Capabilities
+Total Avg.
+HumanEval
+MBPP
+LiveCodeBench V1
+Avg.
+Hella
+ARC-C
+PIQA
+MMLU
+IFEval
+Avg.
+baseline
+33.5
+30.8
+22.7
+29.00
+45.1
+59.0
+68.4
+49.8
+42.4
+52.94
+43.96
+weight decay
+37.2
+29.6
+25.2
+30.67 (+5.76%)
+45.4
+62.4
+68.2
+49.8
+42.4
+53.64 (+1.32%)
+45.03 (+2.43%)
+hidden dropout
+37.8
+31.2
+23.0
+30.67 (+5.76%)
+44.4
+57.6
+68.2
+48.9
+13.5
+46.52 (-12.13%)
+40.58 (-7.69%)
+NEFTune
+34.1
+29.2
+26.3
+29.87 (+3.00%)
+44.6
+55.9
+67.6
+49.8
+42.7
+52.12 (-1.55%)
+43.78 (-0.41%)
+vanilla token dropout
+37.8
+29.0
+31.9
+32.90(+13.45%)
+44.4
+56.6
+67.8
+48.8
+43.3
+52.18 (-1.44%)
+44.95 (+2.25%)
+EntroDrop
+39.6
+28.8
+30.5
+32.97 (+13.69%)
+44.5
+58.0
+68.1
+49.0
+45.1
+52.94 (+0.00%)
+45.45 (+3.39%)
+domains.
+4.3
+Ablation Analysis
+Ablation on Entropy Targets. We investigate the
+impact of targeting tokens with different informa-
+tion densities. Figure 2c visualizes token-level en-
+tropy on a representative mathematical reasoning
+example. We observe a clear structural separation
+between high- and low-entropy tokens. We observe
+high-entropy tokens tend to correspond to pivotal
+semantic elements that determine the global rea-
+soning trajectory. In contrast, low-entropy tokens
+are predominantly associated with local syntactic
+realizations and intermediate derivations. The abla-
+tion results in Table 3 further substantiate the role
+of information density in effective regularization.
+Targeting high-entropy tokens yields marginally
+improvement over uniform random masking. In
+contrast, selectively masking low-entropy tokens
+produces the strongest performance improvements.
+This result aligns with our token-level analysis:
+low-entropy tokens are already accurately mod-
+eled early in training and contribute little additional
+learning signal under repetition. Regularizing these
+regions reduces redundant optimization pressure
+while preserving informative gradients on high-
+entropy tokens, thereby mitigating the imbalance
+in training dynamics.
+Table 3: Ablation study on entropy-based masking tar-
+gets. Masking low-entropy tokens yields the most sig-
+nificant performance gain, confirming that regularizing
+redundant, well-modeled regions is more effective
+Targeting Strategy
+Masking Scope
+Avg. Math Acc
+Random Masking
+All Tokens
+44.78
+High-Entropy (Top 50%)
+Pivotal Info
+44.84 (+0.06)
+Low-Entropy (Bottom 50%)
+Easy Patterns
+45.32 (+0.55)
+Ablation on Ratio Schedule. We further analyze
+the importance of the dynamic masking schedule
+by comparing it with a static alternative, where the
+masking ratio γ is fixed at its maximum value γmax
+from the beginning of training. As shown in Fig-
+ure 2b, applying strong masking uniformly from
+7
+
+the outset impedes early learning: the model ex-
+hibits slower initial convergence and consistently
+underperforms the baseline in early epochs. In con-
+trast, our curriculum-based schedule begins with
+a low masking ratio, allowing the model to learn
+efficiently during the initial phase, matching the
+baseline’s early progress. As training proceeds
+and overfitting risks rise, the gradually increasing
+masking intensity helps sustain learning without
+collapse, enabling continued performance gains
+in later epochs where the baseline stagnates or
+declines. This ablation confirms that a gradual,
+learning-aware increase in regularization strength
+effectively balances early training efficiency with
+long-term robustness.
+4.4
+Impact of Dropout Ratio Strategies
+We investigate the sensitivity of our model to the
+maximum masking proportion γmax in the dy-
+namic sampling strategy. To comprehensively eval-
+uate the training dynamics, we report two diagnos-
+tic metrics alongside the best average benchmark
+accuracy: (1) Best epoch: The training epoch of tar-
+get data where the validation loss reaches its global
+minimum. This serves as a proxy for the onset of
+overfitting. (2) Min validation loss: The lowest
+validation loss achieved during training. A lower
+value implies a better theoretical fit to the underly-
+ing data distribution. The results are summarized in
+Table 4. Increasing the masking ratio γmax signifi-
+cantly delays the onset of overfitting (best epoch)
+and improves theoretical generalization (min val
+loss). However, a moderate ratio yields the best
+downstream accuracy. It is worth noting that to-
+ken dropout does not eliminate overfitting entirely;
+rather, it postpones its occurrence. For instance,
+with γmax = 0.1, validation loss begins to rise af-
+ter 50 epochs, whereas the baseline overfits much
+earlier.
+Table 4: Sensitivity analysis of the maximum mask-
+ing ratio (γmax). While increasing γmax significantly
+postpones the onset of overfitting and leads to lower
+theoretical loss, a moderate ratio (γmax = 0.1) achieves
+the optimal balance for downstream task performance.
+Avg. Math Acc
+Best Epoch
+Min Val Loss
+Baseline (γ = 0)
+44.3
+25
+0.704
+γmax = 0.05
+44.86
+50
+0.692
+γmax = 0.1
+44.94
+50
+0.689
+γmax = 0.2
+43.80
+100
+0.680
+γmax = 0.4
+42.68
+>125
+0.670
+5
+Related Work
+5.1
+Multi-epoch Training for LLM
+The rapid depletion of high-quality public text, re-
+ferred to as the “token crisis”, has made data effi-
+ciency a critical research focus (Villalobos et al.,
+2022). As the acquisition of new unique tokens
+becomes increasingly difficult, multi-epoch train-
+ing has become a prevalent practice, particularly
+through the upsampling of high-quality data. How-
+ever, the specific effects of this approach remain
+under-investigated, and there is a notable lack of
+discussion on how to optimize such repetitive train-
+ing. In fact, recent studies show that this approach
+yields diminishing returns for AR LLM models.
+Unlike human learning, where repetition consoli-
+dates understanding, AR models suffer from degra-
+dation when trained for too many epochs, leading
+to overfitting and a loss of generalization capabil-
+ities (Muennighoff et al., 2023; Xue et al., 2023).
+Scaling laws for data-constrained regimes further
+quantify this limitation, suggesting that the benefits
+of extra epochs plateau quickly compared to adding
+fresh data (Muennighoff et al., 2023; Hernandez
+et al., 2022; Yan et al., 2025). While synthetic
+data generation is a potential alternative, it often
+requires complex engineering pipelines and strict
+quality control to avoid model collapse (Nadas
+et al., 2025; Team et al., 2025). Consequently, our
+work introduces a systematic investigation and a
+regularized training paradigm that effectively mit-
+igates overfitting and deeply exploits the intrinsic
+value of the data.
+5.2
+Data Efficiency and Regularization
+Techniques
+Regularization is essential for preventing overfit-
+ting, particularly when data is limited. Traditional
+techniques, such as hidden state dropout (Srivas-
+tava et al., 2014), word dropout (Merity et al., 2018;
+Hiraoka, 2022; Xu et al., 2018) and weight de-
+cay (Loshchilov and Hutter, 2019), are standard in
+deep learning. However, in the context of LLMs,
+some of these traditional techniques often prove
+insufficient to prevent the severe overfitting during
+multi-epoch training (Xue et al., 2023). Recent
+advances in diffusion models demonstrate superior
+data efficiency compared to AR language models
+under data-constrained regimes (Prabhudesai et al.,
+2025; Ni et al., 2025; Gao et al., 2025). This has
+motivated efforts to adapt similar principles to AR
+models, notably through token dropout (i.e., input
+8
+
+masking), which introduces stochasticity at the to-
+ken level to discourage memorization and promote
+robust feature learning. Our method builds on this
+idea with entropy-guided token dropout: tokens
+are dropped selectively based on model confidence,
+targeting low-entropy (easily memorized) regions
+while preserving semantically rich content. This
+yields more precise and effective regularization.
+6
+Conclusion
+This paper examines the challenge of repetitive data
+training in LLMs and introduces entropy-guided
+token dropout as a strategy to enhance the utility
+of scarce data. We show that performance decay
+during repeated exposure possibly stems from a
+learning imbalance: models overfit to predictable,
+low-entropy tokens while losing generalization on
+high-entropy, informative segments. By selectively
+masking tokens according to their predictability
+and adopting a curriculum-based schedule, our ap-
+proach aims to improve how scarce data is learned,
+enabling models to acquire deeper and more trans-
+ferable knowledge. Experimental results across
+multiple benchmarks demonstrate that this targeted
+regularization delays overfitting and sustains sta-
+ble training over longer cycles. These findings
+offer a promising direction for addressing the “to-
+ken crisis,” indicating that effective scaling can be
+achieved not only through more data, but more
+efficient and adaptive data utilization.
+Limitations
+While our evaluation is primarily focused on do-
+mains like mathematics and code, extending this
+framework to a broader range of tasks will further
+characterize its generalizability. We validated our
+method on models up to 8B parameters, its efficacy
+when scaling to much larger datasets and model
+sizes remains to be explored. Finally, while pre-
+computed entropy serves as an efficient proxy for
+predictability, future research could explore using
+dynamic training loss as a real-time signal to drive
+token dropout, potentially offering even more adap-
+tive regularization as the model evolves.
+References
+Sumithra Bhakthavatsalam, Daniel Khashabi, Tushar
+Khot, Bhavana Dalvi Mishra, Kyle Richardson,
+Ashish Sabharwal, Carissa Schoenick, Oyvind
+Tafjord, and Peter Clark. 2021.
+Think you have
+solved direct-answer question answering? try arc-da,
+the direct-answer AI2 reasoning challenge. CoRR,
+abs/2102.03315.
+Yonatan Bisk, Rowan Zellers, Ronan Le Bras, Jianfeng
+Gao, and Yejin Choi. 2020. PIQA: reasoning about
+physical commonsense in natural language. In The
+Thirty-Fourth AAAI Conference on Artificial Intelli-
+gence, AAAI 2020, The Thirty-Second Innovative Ap-
+plications of Artificial Intelligence Conference, IAAI
+2020, The Tenth AAAI Symposium on Educational
+Advances in Artificial Intelligence, EAAI 2020, New
+York, NY, USA, February 7-12, 2020, pages 7432–
+7439. AAAI Press.
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan,
+Henrique Pondé de Oliveira Pinto, Jared Kaplan,
+Harri Edwards, Yuri Burda, Nicholas Joseph, Greg
+Brockman, Alex Ray, Raul Puri, Gretchen Krueger,
+Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela
+Mishkin, Brooke Chan, Scott Gray, and 39 others.
+2021. Evaluating large language models trained on
+code. CoRR, abs/2107.03374.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+Nakano, Christopher Hesse, and John Schulman.
+2021. Training verifiers to solve math word prob-
+lems. CoRR, abs/2110.14168.
+OpenCompass Contributors. 2023.
+Opencompass:
+A universal evaluation platform for foundation
+models.
+https://github.com/open-compass/
+opencompass.
+Zitian Gao, Haoming Luo, Lynx Chen, Jason Klein Liu,
+Ran Tao, Joey Zhou, and Bryan Dai. 2025. What
+makes diffusion language models super data learners?
+CoRR, abs/2510.04071.
+Jeff Z. HaoChen, Colin Wei, Jason Lee, and Tengyu Ma.
+2021. Shape matters: Understanding the implicit
+bias of the noise covariance. In Proceedings of Thirty
+Fourth Conference on Learning Theory, volume 134
+of Proceedings of Machine Learning Research, pages
+2315–2357. PMLR.
+Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu,
+Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han, Yu-
+jie Huang, Yuxiang Zhang, Jie Liu, Lei Qi, Zhiyuan
+Liu, and Maosong Sun. 2024.
+Olympiadbench:
+A challenging benchmark for promoting AGI with
+olympiad-level bilingual multimodal scientific prob-
+lems. In Proceedings of the 62nd Annual Meeting of
+the Association for Computational Linguistics (Vol-
+ume 1: Long Papers), ACL 2024, Bangkok, Thailand,
+August 11-16, 2024, pages 3828–3850. Association
+for Computational Linguistics.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy
+Zou, Mantas Mazeika, Dawn Song, and Jacob Stein-
+hardt. 2021a. Measuring massive multitask language
+understanding. In 9th International Conference on
+Learning Representations, ICLR 2021, Virtual Event,
+Austria, May 3-7, 2021. OpenReview.net.
+9
+
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul
+Arora, Steven Basart, Eric Tang, Dawn Song, and
+Jacob Steinhardt. 2021b. Measuring mathematical
+problem solving with the MATH dataset. In Pro-
+ceedings of the Neural Information Processing Sys-
+tems Track on Datasets and Benchmarks 1, NeurIPS
+Datasets and Benchmarks 2021, December 2021, vir-
+tual.
+Danny Hernandez, Tom B. Brown, Tom Conerly, Nova
+DasSarma, Dawn Drain, Sheer El Showk, Nelson
+Elhage, Zac Hatfield-Dodds, Tom Henighan, Tristan
+Hume, Scott Johnston, Benjamin Mann, Chris Olah,
+Catherine Olsson, Dario Amodei, Nicholas Joseph,
+Jared Kaplan, and Sam McCandlish. 2022. Scaling
+laws and interpretability of learning from repeated
+data. CoRR, abs/2205.10487.
+Tatsuya Hiraoka. 2022. Maxmatch-dropout: Subword
+regularization for wordpiece. In Proceedings of the
+29th International Conference on Computational Lin-
+guistics, COLING 2022, Gyeongju, Republic of Ko-
+rea, October 12-17, 2022, pages 4864–4872. Interna-
+tional Committee on Computational Linguistics.
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. De-
+noising diffusion probabilistic models. In Advances
+in Neural Information Processing Systems 33: An-
+nual Conference on Neural Information Processing
+Systems 2020, NeurIPS 2020, December 6-12, 2020,
+virtual.
+Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch,
+Elena Buchatskaya, Trevor Cai, Eliza Rutherford,
+Diego de Las Casas, Lisa Anne Hendricks, Johannes
+Welbl, Aidan Clark, Tom Hennigan, Eric Noland,
+Katie Millican, George van den Driessche, Bogdan
+Damoc, Aurelia Guy, Simon Osindero, Karen Si-
+monyan, Erich Elsen, and 3 others. 2022. Train-
+ing compute-optimal large language models. CoRR,
+abs/2203.15556.
+Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia
+Yan, Tianjun Zhang, Sida Wang, Armando Solar-
+Lezama, Koushik Sen, and Ion Stoica. 2025. Live-
+codebench: Holistic and contamination free evalua-
+tion of large language models for code. In The Thir-
+teenth International Conference on Learning Repre-
+sentations, ICLR 2025, Singapore, April 24-28, 2025.
+OpenReview.net.
+Neel Jain, Ping-yeh Chiang, Yuxin Wen, John Kirchen-
+bauer, Hong-Min Chu, Gowthami Somepalli, Brian R.
+Bartoldson, Bhavya Kailkhura, Avi Schwarzschild,
+Aniruddha Saha, Micah Goldblum, Jonas Geiping,
+and Tom Goldstein. 2024. Neftune: Noisy embed-
+dings improve instruction finetuning. In The Twelfth
+International Conference on Learning Representa-
+tions, ICLR 2024, Vienna, Austria, May 7-11, 2024.
+OpenReview.net.
+Samy Jelassi and Yuanzhi Li. 2022. Towards under-
+standing how momentum improves generalization
+in deep learning. In International Conference on
+Machine Learning, pages 9965–10040. PMLR.
+Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B.
+Brown, Benjamin Chess, Rewon Child, Scott Gray,
+Alec Radford, Jeffrey Wu, and Dario Amodei. 2020.
+Scaling laws for neural language models. CoRR,
+abs/2001.08361.
+Jia LI, Edward Beeching,
+Lewis Tunstall,
+Ben
+Lipkin, Roman Soletskyi, Shengyi Costa Huang,
+Kashif Rasul, Longhui Yu, Albert Jiang, Ziju
+Shen, Zihan Qin, Bin Dong, Li Zhou, Yann
+Fleureau, Guillaume Lample, and Stanislas Polu.
+2024. Numinamath. [https://huggingface.co/
+AI-MO/NuminaMath-CoT](https://github.com/
+project-numina/aimo-progress-prize/blob/
+main/report/numina_dataset.pdf).
+Jijie Li, Li Du, Hanyu Zhao, Bo wen Zhang, Liangdong
+Wang, Boyan Gao, Guang Liu, and Yonghua Lin.
+2025. Infinity instruct: Scaling instruction selection
+and synthesis to enhance language models. Preprint,
+arXiv:2506.11116.
+Chen Ling, Xujiang Zhao, Jiaying Lu, Chengyuan Deng,
+Can Zheng, Junxiang Wang, Tanmoy Chowdhury,
+Yun Li, Hejie Cui, Xuchao Zhang, and 1 others. 2025.
+Domain specialization as the key to make large lan-
+guage models disruptive: A comprehensive survey.
+ACM Computing Surveys, 58(3):1–39.
+Yifei Liu, Li Lyna Zhang, Yi Zhu, Bingcheng Dong,
+Xudong Zhou, Ning Shang, Fan Yang, and Mao Yang.
+2025.
+rstar-coder: Scaling competitive code rea-
+soning with a large-scale verified dataset. Preprint,
+arXiv:2505.21297.
+Ilya Loshchilov and Frank Hutter. 2019. Decoupled
+weight decay regularization. In 7th International
+Conference on Learning Representations, ICLR 2019,
+New Orleans, LA, USA, May 6-9, 2019. OpenRe-
+view.net.
+Qiuhao Lu, Rui Li, Andrew Wen, Jinlian Wang, Liwei
+Wang, and Hongfang Liu. 2024. Large language
+models struggle in token-level clinical named entity
+recognition. CoRR, abs/2407.00731.
+Stephen Merity, Nitish Shirish Keskar, and Richard
+Socher. 2018. Regularizing and optimizing LSTM
+language models. In 6th International Conference
+on Learning Representations, ICLR 2018, Vancouver,
+BC, Canada, April 30 - May 3, 2018, Conference
+Track Proceedings. OpenReview.net.
+Niklas Muennighoff, Alexander M. Rush, Boaz Barak,
+Teven Le Scao, Nouamane Tazi, Aleksandra Piktus,
+Sampo Pyysalo, Thomas Wolf, and Colin A. Raffel.
+2023. Scaling data-constrained language models. In
+Advances in Neural Information Processing Systems
+36: Annual Conference on Neural Information Pro-
+cessing Systems 2023, NeurIPS 2023, New Orleans,
+LA, USA, December 10 - 16, 2023.
+Mihai Nadas, Laura Diosan, and Andreea Tomescu.
+2025. Synthetic data generation using large language
+models: Advances in text and code. IEEE Access,
+13:134615–134633.
+10
+
+Gergely Neu, Gintare Karolina Dziugaite, Mahdi Haghi-
+fam, and Daniel M Roy. 2021. Information-theoretic
+generalization bounds for stochastic gradient descent.
+In Proceedings of the 34th Annual Conference on
+Learning Theory, pages 3526–3545.
+Jinjie Ni, Qian Liu, Longxu Dou, Chao Du, Zili Wang,
+Hang Yan, Tianyu Pang, and Michael Qizhe Shieh.
+2025.
+Diffusion language models are super data
+learners. CoRR, abs/2511.03276.
+Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang,
+Jingyang Ou, Jun Hu, Jun Zhou, Yankai Lin, Ji-Rong
+Wen, and Chongxuan Li. 2025. Large language dif-
+fusion models. CoRR, abs/2502.09992.
+Arkil Patel, Satwik Bhattamishra, and Navin Goyal.
+2021. Are NLP models really able to solve simple
+math word problems? In Proceedings of the 2021
+Conference of the North American Chapter of the
+Association for Computational Linguistics: Human
+Language Technologies, NAACL-HLT 2021, Online,
+June 6-11, 2021, pages 2080–2094. Association for
+Computational Linguistics.
+Mihir Prabhudesai, Mengning Wu, Amir Zadeh, Kate-
+rina Fragkiadaki, and Deepak Pathak. 2025. Diffu-
+sion beats autoregressive in data-constrained settings.
+CoRR, abs/2507.15857.
+Xianbiao Qi, Jiaquan Ye, Yelin He, Chun-Guang Li,
+Bojia Zi, Xili Dai, Qin Zou, and Rong Xiao. Stable-
+transformer: Towards a stable transformer training.
+Sheng Shen, Zhewei Yao, Amir Gholami, Michael Ma-
+honey, and Kurt Keutzer. 2020. Powernorm: Rethink-
+ing batch normalization in transformers. In Proceed-
+ings of the 37th International Conference on Machine
+Learning, pages 8741–8751.
+Mohammad Shoeybi, Mostofa Patwary, Raul Puri,
+Patrick LeGresley, Jared Casper, and Bryan Catan-
+zaro. 2019.
+Megatron-lm: Training multi-billion
+parameter language models using model parallelism.
+CoRR, abs/1909.08053.
+Nitish Srivastava, Geoffrey E. Hinton, Alex Krizhevsky,
+Ilya Sutskever, and Ruslan Salakhutdinov. 2014.
+Dropout: a simple way to prevent neural networks
+from overfitting. J. Mach. Learn. Res., 15(1):1929–
+1958.
+Zhengyang Tang, Xingxing Zhang, Benyou Wang, and
+Furu Wei. 2024. Mathscale: Scaling instruction tun-
+ing for mathematical reasoning. In Forty-first Inter-
+national Conference on Machine Learning, ICML
+2024, Vienna, Austria, July 21-27, 2024. OpenRe-
+view.net.
+Ning Tao, Anthony Ventresque, Vivek Nallur, and Tak-
+farinas Saber. 2024. Enhancing program synthesis
+with large language models using many-objective
+grammar-guided genetic programming. Algorithms,
+17(7):287.
+Kimi Team, Yifan Bai, Yiping Bao, Guanduo Chen,
+Jiahao Chen, Ningxin Chen, Ruijue Chen, Yanru
+Chen, Yuankun Chen, Yutian Chen, and 1 others.
+2025. Kimi k2: Open agentic intelligence. arXiv
+preprint arXiv:2507.20534.
+Llama Team. 2024. The llama 3 herd of models. CoRR,
+abs/2407.21783.
+Hoang Van. 2023. Mitigating data scarcity for large
+language models. CoRR, abs/2302.01806.
+Pablo Villalobos, Jaime Sevilla, Lennart Heim, Tamay
+Besiroglu, Marius Hobbhahn, and Anson Ho. 2022.
+Will we run out of data? an analysis of the lim-
+its of scaling datasets in machine learning. CoRR,
+abs/2211.04325.
+Lei Wu and Weijie J Su. 2023. The implicit regular-
+ization of dynamical stability in stochastic gradient
+descent. In International Conference on Machine
+Learning, pages 37656–37684. PMLR.
+Lijun Wu, Juntao Li, Yue Wang, Qi Meng, Tao Qin, Wei
+Chen, Min Zhang, Tie-Yan Liu, and 1 others. 2021.
+R-drop: Regularized dropout for neural networks.
+Advances in Neural Information Processing Systems
+34, pages 10890–10905.
+Hengru Xu, Shen Li, Renfen Hu, Si Li, and Sheng
+Gao. 2018. From random to supervised: A novel
+dropout mechanism integrated with global informa-
+tion. In Proceedings of the 22nd Conference on Com-
+putational Natural Language Learning, CoNLL 2018,
+Brussels, Belgium, October 31 - November 1, 2018,
+pages 573–582. Association for Computational Lin-
+guistics.
+Fuzhao Xue, Yao Fu, Wangchunshu Zhou, Zangwei
+Zheng, and Yang You. 2023. To repeat or not to re-
+peat: Insights from scaling LLM under token-crisis.
+In Advances in Neural Information Processing Sys-
+tems 36: Annual Conference on Neural Information
+Processing Systems 2023, NeurIPS 2023, New Or-
+leans, LA, USA, December 10 - 16, 2023.
+Tingkai Yan, Haodong Wen, Binghui Li, Kairong Luo,
+Wenguang Chen, and Kaifeng Lyu. 2025. Larger
+datasets can be repeated more: A theoretical analysis
+of multi-epoch scaling in linear regression. arXiv
+preprint arXiv:2511.13421.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+Chengen Huang, Chenxu Lv, Chujie Zheng, Day-
+iheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao
+Ge, Haoran Wei, Huan Lin, Jialong Tang, and 40
+others. 2025.
+Qwen3 technical report.
+CoRR,
+abs/2505.09388.
+Runpeng Yu, Qi Li, and Xinchao Wang. 2025. Discrete
+diffusion in large language and multimodal models:
+A survey. CoRR, abs/2506.13759.
+11
+
+Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali
+Farhadi, and Yejin Choi. 2019. Hellaswag: Can a
+machine really finish your sentence? In Proceedings
+of the 57th Conference of the Association for Compu-
+tational Linguistics, ACL 2019, Florence, Italy, July
+28- August 2, 2019, Volume 1: Long Papers, pages
+4791–4800. Association for Computational Linguis-
+tics.
+Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Siddhartha
+Brahma, Sujoy Basu, Yi Luan, Denny Zhou, and
+Le Hou. 2023. Instruction-following evaluation for
+large language models. CoRR, abs/2311.07911.
+A
+Experimental Settings
+A.1
+Implementation Details
+We train using Megatron-LM (Shoeybi et al., 2019)
+with a sequence length of 4,096, a global batch
+size of 512, and a peak learning rate of 1e-5 with
+cosine decay.
+For mathematical reasoning, we
+use the NuminaMath (LI et al., 2024) dataset; for
+general-domain data, we use Infinity-Instruct (Li
+et al., 2025); and for code generation, we use rStar-
+Coder (Liu et al., 2025) dataset.
+A.2
+Hyper-parameter Tuning
+As shown in Table 4, our method uses γmax = 0.1.
+For baseline regularization methods, we perform
+hyperparameter tuning: for hidden dropout, we test
+dropout rates of 0.05, and 0.1; for weight decay,
+we test coefficients of 0.1, 0.3, and 0.5. For NEF-
+Tune, we adopt the recommended hyperparameter
+α = 5 to scale the uniform noise injected into the
+embeddings by a factor of α/
+√
+Ld. Results are
+summarized in Figure 3, and the best-performing
+configuration for each method is reported in the
+main results table.
+0.0
+0.05
+0.1
+Hidden Dropout Rate
+42
+43
+44
+45
+46
+Accuracy (%)
+Hidden Dropout
+0.1
+0.3
+0.5
+Weight Decay Coefficient
+Weight Decay
+Figure 3: Hyper-parameter tuning for baselines.
+A.3
+Choice of Mask Token Embedding
+A natural implementation is to use the zero vector
+as ¯e. However, we observed that this leads to fre-
+quent gradient explosion (e.g., infinite gradients)
+during continual pretraining. To mitigate this, we
+adopt a mean interpolation strategy and set ¯e to
+the average of the base model’s token embedding
+matrix:
+¯e = 1
+|V|
+X
+w∈V
+E[w],
+where V is the vocabulary and E[w] ∈Rd denotes
+the embedding of token w. Empirically, this simple
+choice significantly stabilizes training and elimi-
+nating gradient divergence, without requiring addi-
+tional parameters or fine-tuning.
+B
+Comparison of Loss Dynamics
+To further examine how our method mitigates
+multi-epoch degradation, we compare the cross-
+entropy loss dynamics categorized by token en-
+tropy against the baseline (Figure 4). Our method
+effectively suppresses the rebound of validation
+loss, maintaining a lower and more stable loss tra-
+jectory.
+0
+250
+500
+750
+1000
+1250
+1500
+Training Step
+0.0
+0.5
+1.0
+1.5
+2.0
+Cross Entropy Loss
+Loss Dynamics by Token Entropy
+Baseline (High-Entropy)
+Baseline (Avg)
+Baseline (Low-Entropy)
+EntroDrop (High-Entropy)
+EntroDrop (Avg)
+EntroDrop (Low-Entropy)
+Figure 4: Comparison of Loss Dynamics by Token En-
+tropy.
+C
+Theoretical Analysis
+In this section, we analyze the effectiveness of to-
+ken dropout from the perspective of variance re-
+duction. Our main result indicates that, once the
+values of γj and gt in section 3.2 are properly set,
+token dropout effectively reduces the variance of
+the training gradients, thereby leading to more sta-
+ble model training.
+Before proceeding with the formal analysis, we
+remark that our analysis is built on several assump-
+tions, which are listed in detail in Table 5. As we
+can see, Assumptions A1-2 are largely regarded as
+empirically plausible. While Assumptions A3-4
+12
+
+are aligned with our proposed method, we high-
+light that Assumptions A5 and A6 impose stronger
+restrictions on the robustness of LLMs. Under the
+above assumptions, we prove Theorem 1 as fol-
+lows.
+Proof of Theorem 1. First, utilize the law of total
+variance to decompose the masked gradient vari-
+ance:
+V(∇θLM(θ)) = Em[V(∇θL(θ) | m)]
++ Vm[E(∇θL(θ) | m)].
+We then bound the expected conditional variance
+term Em[V(∇θL(θ) | m)]. By A6, gradients of
+tokens are independent in an AR model. Let S be
+the set of low-entropy tokens (|S| = αT). For i ∈
+S, P(mi = 1) = γj. If masked, the embedding
+is constant, so V(∇θli | mi = 1) = 0. Summing
+over the sequence we get
+Em[V(∇θL(θ) | m)]
+= α(1 −γj)
+T
+VS(θ) + 1 −α
+T
+V ¯S(θ).
+Notice that the original variance is
+V(∇θL(θ)) = 1
+T [αVS(θ) + (1 −α)V ¯S(θ)]
+We have
+Em[V(∇θL(θ) | m)] ≤V(∇θL(θ)) · (1 −γjα).
+(5)
+Then, we bound the Variance term of the Condi-
+tional Expectation. Using the Lipschitz continuity
+of the gradient (A5), bounded variance (A1), and
+the embedding bounds (A2, A6), we obtain
+∥E(∇θL | m)−E(∇θL)∥2 ≤G·(σ+δ)· 1
+T
+X
+i∈S
+mi.
+Applying the variance definition
+Vm[E(∇θL | m)] ≤G2(σ+δ)2Em
+
+
+ 
+1
+T
+X
+i∈S
+mi
+!2
+.
+For large T, the second moment of the Binomial
+distribution P mi ∼Bin(αT, γj) (A3, A4) yields
+lim
+T→∞E
+" 1
+T
+X
+mi
+2#
+= lim
+T→∞
+(
+E
+ 1
+T
+X
+mi
+2
++ V
+ 1
+T
+X
+mi
+)
+=(γjα)2 + lim
+T→∞
+γjα(1 −γj)
+T
+=(γjα)2.
+Thus,
+Vm[E(∇θL | m)] ≤G2(σ + δ)2(γjα)2.
+(6)
+Combining Eq. (5) and Eq. (6) yields the final re-
+sult.
+Remark
+It is easy to see that the right side of
+Theorem 1 is a quadratic function of γj · α. By
+taking the derivative with respect to the masking
+rate γj · α, the theoretical optimal masking rate can
+be derived as
+γj · α = V(∇θL(θ; x))
+2G2 · (σ + δ)2 .
+(7)
+Although G, σ, δ exist in theory, they are often
+intractable to compute experimentally (Qi et al.),
+so is the optimal masking rate consequently. How-
+ever, Eq. (7) rigorously guarantees the existence
+and uniqueness of the optimal mask schedule. Em-
+pirically, we observe that γmax = 0.1, k = 50%
+effectively achieves the desired outcome, whereas
+alternative choices fail to produce superior results,
+which aligns with our theoretical analysis.
+13
+
+Table 5: Model and Data Assumptions
+ID
+Name
+Definition
+A1
+Bounded Variance
+The standard deviation of low-entropy embeddings is bounded: σ =
+p
+V(E[xi]i∈S) < +∞.
+A2
+Embedding Offset
+The global average embedding ¯e =
+1
+|V |
+P
+w∈V E[w] and low-entropy
+token expectations satisfy: ∥¯e −Ex∈Ddom[E[xi]]∥2 ≤δ for i ∈S.
+A3
+Mask Independence
+Mask events {mi} are mutually independent: P(mi = 1 | mj =
+1) = P(mi = 1), ∀i̸ = j.
+A4
+Partial Masking
+Masking probability P(mi = 1) = γj · gi ∈[0, Γ], where γj is the
+curriculum rate and gi is the gating function.
+A5
+Gradient Lipschitz
+The gradient ∇θL is G-Lipschitz continuous w.r.t. low-entropy em-
+beddings: ∥∇θL(θ; x, e1) −∇θL(θ; x, e2)∥2 ≤G · ∥e1 −e2∥2.
+A6
+Gradient Independence
+The gradients induced by token-wise loss ∇log pθ(xi) are indepen-
+dent with each other.
+14
