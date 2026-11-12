@@ -92,3 +92,42 @@ class Chunk(BaseModel):
         description="Section heading the chunk belongs to, or 'Unknown'."
     )
     text: str = Field(description="The chunk text, about 200 words.")
+
+
+class StudyCard(BaseModel):
+    method: str = Field(
+        description="What the study did or tested, in one short sentence."
+    )
+    setting: str = Field(description="Dataset, task or conditions, or 'not stated'.")
+    finding: str = Field(
+        description="The main result that bears on the question, in one sentence."
+    )
+    implication: str = Field(
+        description="What this paper's finding implies for the question, in one short sentence."
+    )
+    answer: Literal["yes", "no", "partly", "unclear"] = Field(
+        description="Answer the question using ONLY this paper's result: 'yes', 'no', 'partly' if the result is mixed, or 'unclear' if it does not decide the question."
+    )
+
+    @property
+    def direction(self) -> str:
+        return {"yes": "supports", "no": "contradicts", "partly": "mixed"}.get(
+            self.answer, "unclear"
+        )
+
+    quote: str = Field(
+        description="One sentence copied exactly, word for word, from the passages, that backs the finding. Empty string if none."
+    )
+    limitations: str = Field(
+        description="Limits the passages state or clearly imply, or 'not stated'."
+    )
+    has_finding: bool = Field(
+        description="False if the passages contain no actual result for the question."
+    )
+
+
+class PaperCard(BaseModel):
+    arxiv_id: str
+    title: str
+    card: StudyCard
+    quote_verified: bool = False
