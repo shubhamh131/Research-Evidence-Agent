@@ -1,7 +1,7 @@
 from app.planner import make_plan
-from app.collect import collect_papers
-from app.screen import screen_papers
-from app.prefilter import embed_filter
+from app.collection.collect import collect_papers
+from app.screening.screen import screen_papers
+from app.screening.prefilter import embed_filter
 
 question = "Are RNNs replaced by transformers?"
 papers = collect_papers(make_plan(question))

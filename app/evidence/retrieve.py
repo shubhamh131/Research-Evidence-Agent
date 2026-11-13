@@ -1,7 +1,7 @@
 import numpy as np
 
 from app.models import Chunk
-from app.prefilter import embedder
+from app.screening.prefilter import embedder
 
 
 def retrieve(queries: list[str], chunks: list[Chunk], keep: int = 20) -> list[Chunk]:

@@ -1,8 +1,8 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.models import Chunk, Paper, PaperCard, StudyCard
-from app.screen import llm
-from app.citation import quote_found
+from app.screening.screen import llm
+from app.evidence.citation import quote_found
 
 SYSTEM_TEXT = """
 You fill in a study card for one research paper, to answer a question.

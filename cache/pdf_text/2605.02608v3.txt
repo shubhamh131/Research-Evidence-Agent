@@ -1,0 +1,1432 @@
+Dependency Parsing Across the Resource Spectrum:
+Evaluating Architectures on High and Low-Resource Languages
+Kevin Guan
+Happy Buzaaba
+Christiane Fellbaum
+Princeton University
+{kevinguan, happy.buzaaba, fellbaum}@princeton.edu
+Abstract
+Transformer-based models achieve state-of-
+the-art dependency parsing for high-resource
+languages, yet their advantage over sim-
+pler architectures in low-resource settings re-
+mains poorly understood. We evaluate four
+parsers—the Biaffine LSTM, Stack-Pointer
+Network, AfroXLMR-large, and RemBERT—
+across twelve typologically diverse languages,
+with a focus on low-resource African lan-
+guages. We find that the Biaffine LSTM consis-
+tently outperforms transformer models in low-
+resource regimes, with transformers recover-
+ing their advantage as training data increases.
+The crossover falls within a resource range
+typical of treebanks for under-resourced lan-
+guages. Morphological complexity (measured
+via MATTR) emerges as a significant secondary
+predictor of transformers’ relative disadvantage
+after controlling for corpus size. These results
+indicate that the Biaffine LSTM may be better
+suited for syntactic tool development in low-
+resource regimes until sufficient annotated data
+is available to leverage the representational ca-
+pacity of pre-trained transformers.
+1
+Introduction
+Dependency parsing—the task of identifying gram-
+matical relations between words in a sentence—
+is a foundational task in NLP with broad down-
+stream applications, including machine translation,
+information extraction, and semantic role labeling.
+Transformer-based models such as BERT and its
+multilingual variants now dominate dependency
+parsing benchmarks for high-resource languages,
+where abundant pre-training corpora and large tree-
+banks allow these parameter-rich architectures to
+perform extremely well (Kondratyuk and Straka,
+2019; Li et al., 2019; Gr¨unewald et al., 2021).
+This advantage, however, does not transfer
+uniformly to low-resource languages.
+Many
+languages—particularly African languages such as
+Xhosa and Wolof, spoken by millions but severely
+underrepresented in large text corpora—have de-
+pendency treebanks containing only a few hundred
+to a few thousand sentences, compared to tens of
+thousands available for English (Jha et al., 2020;
+Zhou et al., 2025). Pre-trained transformers re-
+quire substantial in-domain data to fine-tune ef-
+fectively, and the computational demands of fine-
+tuning present additional barriers in low-resource
+settings (Wang et al., 2020; Wu and Dredze, 2020).
+We hypothesize that traditional architectures—
+particularly LSTM-based parsers—remain compet-
+itive with or outperform transformers when train-
+ing data is scarce, for three reasons. First, gener-
+alization: transformer models contain orders of
+magnitude more learnable parameters than LSTM-
+based parsers. With limited training data, smaller
+models may generalize more reliably and overfit
+less (Gessler and Zeldes, 2022; Lindenmaier et al.,
+2025). Second, inductive bias: LSTM networks
+encode stronger built-in assumptions about sequen-
+tial and hierarchical structure, which may serve as
+useful guidance when data is scarce (Tran et al.,
+2018; Dehghani et al., 2018). Third, stability:
+LSTM-based models tend to exhibit more consis-
+tent behavior across training runs, a meaningful
+advantage when working with small, noisy datasets
+(McCoy et al., 2020; Dodge et al., 2020).
+To test this hypothesis, we systematically
+evaluate two LSTM-based parsers (Biaffine and
+Stack-Pointer) and two transformer-based parsers
+(AfroXLMR-large and RemBERT) across a di-
+verse set of languages spanning a wide range of
+treebank sizes.
+Our central questions are: (1)
+Do LSTM-based parsers outperform transformer-
+based parsers on low-resource languages, while
+transformers regain their advantage at higher re-
+source levels? (2) Does the transformers’ relative
+error disadvantage decrease as training data grows?
+We measure performance using labeled and unla-
+1
+arXiv:2605.02608v3  [cs.CL]  12 Oct 2026
+
+beled attachment scores (LAS/UAS), and we op-
+erationalize the transformer’s relative advantage
+as its change in error rate normalized against the
+Biaffine LSTM baseline—a measure we call rela-
+tive error rate (RER). This measure accounts for
+the fact that LAS gains are not comparable across
+languages and settings with very different baseline
+difficulties.
+2
+Related Work
+Most African languages remain severely under-
+resourced in NLP due to their near-absence from
+web-crawled corpora such as Wikipedia and Com-
+monCrawl, producing a digital language divide in
+which standard NLP pipelines fail to generalize to
+African linguistic contexts (Adelani, 2025; Bella
+et al., 2023; Nekoto et al., 2020).
+Recent efforts to close this gap have proceeded
+along two complementary tracks: dataset construc-
+tion and model adaptation. In the data domain,
+various initiatives have produced word embeddings
+(Adelani, 2022; Bojanowski et al., 2017), human-
+curated parallel corpora, and labeled benchmarks
+for machine translation (Nsumba et al., 2026; Kale-
+jaiye et al., 2025), sentiment analysis (Muhammad
+et al., 2023), and news classification (Adelani et al.,
+2023) across a wide range of languages. On the
+architectural front, AfriBERTa (Ogueji, 2022) and
+AfroXLMR (Alabi et al., 2022) adapt multilingual
+transformer encoders to African morphology and
+orthography. AfriBERTa is trained from scratch,
+while AfroXLMR leverages continued pre-training
+on African-language corpora; both outperform gen-
+eral baselines such as mBERT and XLM-R on
+African NLP tasks. Masakhane, a grassroots re-
+search community, has been central to both efforts,
+providing named-entity and part-of-speech bench-
+marks across 20 languages through MasakhaNER
+(Adelani et al., 2022) and MasakhaPOS (Dione
+et al., 2023), among other contributions.
+3
+Data
+Syntactic resources for African languages have de-
+veloped more slowly than the broader benchmarks
+described above. Treebanks such as Wolof-WTB
+(Dione, 2019) and Naija-NSC (Caron et al., 2019)
+establish gold-standard dependency annotations
+for individual languages, but broad cross-lingual
+coverage has remained limited. AfriSUD (Buza-
+aba et al., 2026) represents a significant step for-
+ward, providing human-annotated treebanks in the
+Surface-Syntactic Universal Dependencies (SUD)
+framework across nine African languages. This
+collection forms the basis of the present study,
+with seven of the nine languages—Swahili, Kin-
+yarwanda, Nigerian Pidgin, Wolof, Yoruba, Xhosa,
+and Hausa—included in our evaluation.
+Languages and resource groupings.
+While the
+AfriSUD collection provides data for nine lan-
+guages, we exclude Efik and Runyankore from our
+evaluation because pre-trained static word embed-
+dings were unavailable. To span a broader resource
+spectrum and establish high-resource baselines,
+we supplement the remaining seven AfriSUD lan-
+guages with five additional SUD treebanks: French,
+Dutch, Romanian, Turkish, and Afrikaans. This
+yields a final evaluation set of twelve languages:
+Swahili (swa), Kinyarwanda (kin), Nigerian Pid-
+gin (pcm), Wolof (wol), Yoruba (yor), Hausa (hau),
+Xhosa (xho), French (fra), Dutch (nld), Romanian
+(ron), Turkish (tur), and Afrikaans (afr).
+Treebank sources and splits.
+Our treebanks
+are SUD-converted versions of standard UD re-
+leases: French GSD (Abeill´e et al., 2019), Alpino
+for Dutch (Bouma et al., 2001), Romanian RRT
+(Barbu Mititelu and Irimia, 2016), Turkish IMST
+(Sulubacak et al., 2016), AfriBooms for Afrikaans
+(Augustinus et al., 2016), and the AfriSUD col-
+lection (Buzaaba et al., 2026) for remaining lan-
+guages. Splits follow an 80–10–10 ratio. Because
+the French and Dutch training sets are larger than
+needed to characterize high-resource behavior, we
+randomly subsample them to 10,000 sentences; dev
+and test sets remain unchanged. Sentence counts
+after subsampling are reported in Table 1.
+Language
+Code
+Train
+Dev
+Test
+French
+fra
+10,000∗
+1,634
+1,634
+Dutch
+nld
+10,000∗
+1,360
+1,361
+Romanian
+ron
+7,619
+953
+952
+Turkish
+tur
+4,508
+563
+564
+Afrikaans
+afr
+1,547
+194
+193
+Swahili
+swa
+1,187
+149
+148
+Kinyarwanda
+kin
+1,098
+137
+137
+Nigerian Pidgin
+pcm
+1,085
+135
+136
+Wolof
+wol
+736
+92
+92
+Yoruba
+yor
+694
+87
+87
+Hausa
+hau
+690
+86
+86
+Xhosa
+xho
+369
+46
+46
+Table 1: Treebank splits (sentence counts). ∗French and
+Dutch training sets subsampled from 13,074 and 10,882,
+respectively, to 10,000; dev/test sets unchanged.
+2
+
+Morphological complexity.
+To examine whether
+typological properties of the target language mod-
+ulate architecture-level differences in parsing per-
+formance, we include morphological complexity
+as a covariate in our statistical models. We op-
+erationalize complexity via the Moving-Average
+Type–Token Ratio (MATTR) (Covington and Mc-
+Fall, 2010), which corrects the well-known sen-
+sitivity of raw type–token ratio to text length by
+averaging type–token ratios over a sliding window.
+Languages with richer morphology produce more
+distinct surface forms per window, yielding higher
+MATTR values. We use the gold tokenization pro-
+vided by our treebanks and a window size of 500
+tokens. MATTR scores are computed over each
+language’s training split and reported in Table 2.
+The resulting rankings align with established
+characterizations of morphological complexity.
+Xhosa, Turkish, and Kinyarwanda—languages
+with productive agglutinative morphology (Probert,
+2019; Briscoe and Carroll, 1993; Nzeyimana,
+2024)—rank highest, reflecting the large inventory
+of distinct surface forms generated by concatena-
+tive affixation. Romanian ranks fourth, consistent
+with its retention of nominal case morphology dis-
+tinguishing it from its Romance relatives (Maiden
+et al., 2021). At the other extreme, Nigerian Pidgin
+and Afrikaans score lowest, in line with the mor-
+phological reduction characteristic of pidginization
+and Afrikaans’s well-documented morphological
+simplification from Dutch (McWhorter, 2001; Don-
+aldson, 1993).
+Language
+Tokens
+MATTR
+z-score
+Xhosa
+6,282
+0.800
++2.241
+Turkish
+46,239
+0.732
++1.389
+Kinyarwanda
+26,700
+0.673
++0.658
+Romanian
+173,946
+0.634
++0.175
+Swahili
+29,781
+0.626
++0.076
+Dutch
+154,187
+0.609
+−0.130
+Yoruba
+10,422
+0.586
+−0.409
+French
+244,944
+0.570
+−0.617
+Wolof
+15,415
+0.567
+−0.651
+Hausa
+13,874
+0.566
+−0.662
+Nigerian Pidgin
+26,489
+0.541
+−0.974
+Afrikaans
+39,199
+0.531
+−1.095
+Table 2: MATTR scores and standardized values, com-
+puted over training splits with window size w = 500.
+4
+Models
+We evaluate three primary dependency parsing
+architectures: the Biaffine LSTM parser (Dozat
+and Manning, 2017), transformer-based biaffine
+parsers, and the Stack-Pointer Network (Ma et al.,
+2018). The biaffine parsers are implemented using
+the SuPar Python package (Zhang, 2024), and the
+Stack-Pointer parsers are implemented using the
+NeuroNLP2 repository (Ma, 2024).
+Biaffine LSTM.
+The deep biaffine attention
+parser (Dozat and Manning, 2017) is our graph-
+based baseline and the de facto standard for neural
+dependency parsing. It encodes sentences with a
+BiLSTM and scores arcs via a biaffine function, de-
+coding the optimal tree with the Chu-Liu/Edmonds
+algorithm (Chu, 1965; Edmonds, 1967). We use
+this model with static FastText embeddings.
+Stack-Pointer Network.
+The Stack-Pointer Net-
+work (Ma et al., 2018) is a transition-based parser
+with a BiLSTM-CNN encoder that decodes top-
+down and depth-first via a pointer network, incorpo-
+rating ancestor and sibling features for higher-order
+context. This approach avoids the directional bias
+of traditional transition parsers while remaining
+more efficient than MST-based decoding.
+AfroXLMR-large.
+AfroXLMR-large
+(Alabi
+et al., 2022) is a domain-adapted variant of
+XLM-R (Conneau et al., 2020) that continues
+pre-training on 17 African languages, yielding
+richer representations for the morphologically
+complex languages in our evaluation set.
+It is
+paired with SuPar’s biaffine parsing head and
+fine-tuned end-to-end.
+RemBERT.
+RemBERT (Chung et al., 2020) is
+a multilingual transformer encoder that decouples
+input and output embeddings, allocating a larger
+input layer to better handle morphologically rich
+languages. Like AfroXLMR-large, it is paired with
+a biaffine head in SuPar and fine-tuned jointly dur-
+ing training.
+5
+Experiments
+Hyperparameter optimization.
+We tune each
+model via grid search with a fixed seed. To keep
+the search tractable, high-resource languages are
+downsampled to 5,000 training sentences, and mod-
+els are trained at 25% of the full epoch budget with
+halved early-stopping patience. For the Biaffine
+LSTM we search over learning rate, decay rate,
+and decay steps (12 runs per language); for the
+transformer-based models (AfroXLMR-large and
+RemBERT) we search over learning rate, warmup
+steps, and the ratio between the encoder and task-
+head learning rates (18 runs); and for Stack-Pointer
+3
+
+we additionally tune unknown-word replacement
+probability and gradient clipping (24 runs). All
+other hyperparameters are kept at default values as
+defined by the respective implementation libraries.
+Word embeddings.
+The Biaffine LSTM and
+Stack-Pointer models use 300-dimensional pre-
+trained static word vectors. For languages in the
+official FastText distribution (Grave et al., 2018)
+we use vectors trained on CommonCrawl and
+Wikipedia.
+For African languages not covered
+there, we fall back to embeddings provided by Ade-
+lani’s AfricaNLP resources repository (Adelani,
+2022). As noted in Section 3, Efik and Runyankore
+are excluded from our analysis because no pre-
+trained vectors could be located for either language.
+Static vectors are concatenated with character-level
+representations (CNN or LSTM) and gold POS
+tag embeddings. The transformer-based models do
+not use static vectors; they generate contextualized
+subword representations internally.
+Training protocol.
+Final models are trained on
+the full data with the best hyperparameters. Bi-
+affine models run for up to 1,000 epochs (pa-
+tience 100); Stack-Pointer models run for up to
+600 epochs (patience 60). In practice, no model
+approached its epoch ceiling before early stopping
+triggered. Transformer models on high-resource
+languages (Romanian, Dutch, French) are addition-
+ally capped at 100 epochs to balance computational
+costs, as these models require fewer passes to con-
+verge due to their large volumes of data. Each
+configuration is trained five times with different
+random seeds, and we report mean UAS and LAS
+across runs to reduce sensitivity to initialization.
+6
+Results
+6.1
+Parsing Performance
+Tables 3a and 3b report mean LAS and UAS with
+standard deviations across five training runs for all
+four architectures and twelve languages. Overall,
+performance scales with training set size, though
+the relative ordering of architectures varies by lan-
+guage. The transformer models outperform the Bi-
+affine LSTM on higher-resource languages, while
+the LSTM is competitive with or superior to both
+transformers on several lower-resource ones. The
+Stack-Pointer parser is the weakest architecture
+across nearly all languages and metrics.
+We quantify architecture-level differences us-
+ing the relative error rate (RER).
+Let
+LASBiaffine LSTM(ℓ) and LASTF(ℓ) denote the la-
+beled attachment scores of the Biaffine LSTM base-
+line and a transformer comparison model on lan-
+guage ℓ. We define:
+RERLAS(ℓ) = LASBiaffine LSTM(ℓ) −LASTF(ℓ)
+100 −LASBiaffine LSTM(ℓ)
+(1)
+and likewise for unlabeled attachment (RERUAS).
+We prefer RER over raw score differences for two
+reasons. First, absolute LAS or UAS gains are
+confounded with baseline difficulty: a 2-point gain
+at a baseline of 95 is not comparable to the same
+gain at a baseline of 70, as the remaining headroom
+differs substantially. Second, because attachment
+scores are bounded at 100, raw differences are het-
+eroscedastic across the training-size axis, with low-
+resource languages exhibiting lower baselines and
+higher variance; normalizing against the remaining
+error stabilizes variance across languages. A value
+RERLAS > 0 indicates that the comparison model
+incurs more errors than the Biaffine LSTM, while
+RERLAS < 0 indicates fewer errors.
+Tables 4 and 5 report RERLAS and RERUAS
+for each comparison model.
+Both transformer
+models show RERLAS, RERUAS < 0 (fewer er-
+rors than the LSTM) on French, Romanian, and
+Afrikaans, but RER > 0 on Xhosa, Wolof,
+and—for RemBERT—Swahili. Looking only at
+RERLAS, the pattern of LSTM’s competitive-
+ness extends further. AfroXLMR shows positive
+RERLAS on Swahili (+0.049) in addition to Xhosa
+(+0.148) and Wolof (+0.077). RemBERT’s label-
+level underperformance is even more extensive:
+beyond Swahili (+0.181), Wolof (+0.130), and
+Xhosa (+0.314), it records positive RERLAS on
+Yoruba (+0.071) and Kinyarwanda (+0.042). The
+Stack-Pointer parser consistently underperforms,
+with RER > 0 on nearly every language. Figure 1
+plots RERLAS and RERUAS for each non-baseline
+model across languages ordered by training set size.
+6.2
+Training Data Scaling
+To test whether RER is systematically related to
+training set size, we fit linear mixed models pre-
+dicting RERLAS and RERUAS as a function of
+log training sentences, with language as a random
+intercept. We restrict this analysis to the two trans-
+former models, since the Stack-Pointer parser is
+consistently outperformed by the LSTM baseline,
+showing RER > 0 on nearly every language.
+4
+
+Language
+Biaffine LSTM
+AfroXLMR-large
+RemBERT
+Stack-Pointer
+French (fra)
+93.51 ± 0.13
+95.81 ± 0.05
+95.53 ± 0.08
+92.41 ± 0.05
+Dutch (nld)
+91.07 ± 0.12
+94.55 ± 0.15
+94.50 ± 0.13
+90.39 ± 0.21
+Romanian (ron)
+87.23 ± 0.18
+90.61 ± 0.12
+90.51 ± 0.06
+87.41 ± 0.12
+Turkish (tur)
+67.35 ± 0.52
+72.76 ± 0.56
+73.07 ± 0.49
+63.88 ± 0.28
+Afrikaans (afr)
+85.85 ± 0.31
+88.90 ± 0.28
+87.75 ± 0.19
+85.91 ± 0.61
+Swahili (swa)
+79.48 ± 0.43
+78.48 ± 0.49
+75.77 ± 0.53
+73.10 ± 0.95
+Kinyarwanda (kin)
+76.16 ± 0.30
+76.21 ± 0.43
+75.16 ± 0.94
+74.76 ± 0.35
+Nigerian Pidgin (pcm)
+70.56 ± 0.51
+72.12 ± 0.42
+71.81 ± 0.52
+68.65 ± 0.77
+Wolof (wol)
+79.63 ± 0.28
+78.06 ± 0.76
+76.99 ± 0.42
+76.27 ± 0.76
+Yoruba (yor)
+77.71 ± 0.66
+77.75 ± 0.81
+76.13 ± 0.42
+75.33 ± 0.45
+Hausa (hau)
+79.66 ± 0.61
+80.75 ± 0.63
+79.75 ± 1.25
+78.55 ± 0.60
+Xhosa (xho)
+70.38 ± 0.67
+66.00 ± 0.80
+61.08 ± 1.72
+58.20 ± 1.30
+(a) Mean Labeled Attachment Score (LAS) ± standard deviation.
+Language
+Biaffine LSTM
+AfroXLMR-large
+RemBERT
+Stack-Pointer
+French (fra)
+95.53 ± 0.08
+97.30 ± 0.03
+97.17 ± 0.07
+94.69 ± 0.08
+Dutch (nld)
+93.85 ± 0.16
+96.34 ± 0.12
+96.37 ± 0.07
+93.24 ± 0.22
+Romanian (ron)
+92.45 ± 0.14
+95.38 ± 0.08
+95.26 ± 0.04
+92.01 ± 0.11
+Turkish (tur)
+75.98 ± 0.23
+82.30 ± 0.37
+82.86 ± 0.30
+72.40 ± 0.37
+Afrikaans (afr)
+88.74 ± 0.31
+91.37 ± 0.33
+90.42 ± 0.01
+88.68 ± 0.59
+Swahili (swa)
+88.57 ± 0.37
+89.39 ± 0.22
+87.54 ± 0.57
+84.92 ± 0.82
+Kinyarwanda (kin)
+86.44 ± 0.24
+86.59 ± 0.26
+86.11 ± 0.54
+85.71 ± 0.32
+Nigerian Pidgin (pcm)
+80.41 ± 0.72
+82.13 ± 0.30
+81.83 ± 0.44
+78.12 ± 0.48
+Wolof (wol)
+85.79 ± 0.16
+84.88 ± 0.76
+84.19 ± 0.47
+82.83 ± 0.77
+Yoruba (yor)
+85.46 ± 0.41
+85.97 ± 0.67
+84.25 ± 0.39
+83.69 ± 0.35
+Hausa (hau)
+92.30 ± 0.49
+92.32 ± 0.29
+91.81 ± 0.74
+91.47 ± 0.74
+Xhosa (xho)
+81.70 ± 0.52
+76.78 ± 1.07
+72.78 ± 1.69
+69.80 ± 1.44
+(b) Mean Unlabeled Attachment Score (UAS) ± standard deviation.
+Table 3: Parsing performance results across five seeds for LAS and UAS.
+Language
+AfroXLMR
+RemBERT
+Stk-Ptr
+French
+−0.354
+−0.311
+0.169
+Dutch
+−0.390
+−0.384
+0.076
+Romanian
+−0.265
+−0.257
+−0.014
+Turkish
+−0.166
+−0.175
+0.106
+Afrikaans
+−0.216
+−0.134
+−0.004
+Swahili
+0.049
+0.181
+0.311
+Kinyarwanda
+−0.002
+0.042
+0.059
+Nigerian Pidgin
+−0.053
+−0.042
+0.065
+Wolof
+0.077
+0.130
+0.165
+Yoruba
+−0.002
+0.071
+0.107
+Hausa
+−0.054
+−0.004
+0.055
+Xhosa
+0.148
+0.314
+0.411
+Table 4: RERLAS compared to the Biaffine LSTM base-
+line. Values RERLAS < 0 favor the comparison model;
+values RERLAS > 0 favor the LSTM.
+Both models show a statistically significant neg-
+ative relationship between training size and RER—
+RER decreases as more data becomes available.
+For LAS, the slope on log train is ˆβ = −0.388
+(p < .001) for RemBERT and ˆβ = −0.321
+(p < .001) for AfroXLMR-large; the correspond-
+ing UAS slopes are steeper at ˆβ = −0.496 and
+ˆβ = −0.398 (both p < .001). Spearman corre-
+lations between training size and mean RER are
+Language
+AfroXLMR
+RemBERT
+Stk-Ptr
+French
+−0.396
+−0.367
+0.188
+Dutch
+−0.405
+−0.410
+0.100
+Romanian
+−0.388
+−0.372
+0.059
+Turkish
+−0.263
+−0.286
+0.149
+Afrikaans
+−0.234
+−0.149
+0.006
+Swahili
+−0.072
+0.090
+0.320
+Kinyarwanda
+−0.011
+0.024
+0.054
+Nigerian Pidgin
+−0.088
+−0.072
+0.117
+Wolof
+0.064
+0.113
+0.208
+Yoruba
+−0.035
+0.083
+0.122
+Hausa
+−0.003
+0.064
+0.108
+Xhosa
+0.269
+0.487
+0.650
+Table 5: RERUAS compared to the Biaffine LSTM base-
+line. Values RERUAS < 0 favor the comparison model;
+values RERUAS > 0 favor the LSTM.
+negative and significant across all model–metric
+combinations, corroborating this pattern under min-
+imal distributional assumptions. For RemBERT,
+ρLAS = −0.830 (p < .001) and ρUAS = −0.869
+(p < .001); for AfroXLMR-large, ρLAS = −0.844
+(p < .001) and ρUAS = −0.935 (p < .001). Fitted
+curves for LAS are shown in Figure 2.
+The fitted curves cross RER = 0—the point at
+which a transformer’s predicted error equals the
+5
+
+(a) RERLAS
+(b) RERUAS
+Figure 1: RER vs. sentence count. RER < 0 indicates
+fewer errors than Biaffine LSTM baseline.
+LSTM’s—at the sentence counts summarized in
+Table 6. AfroXLMR-large reaches the crossover
+at around 830-860 sentences, while RemBERT re-
+quires approximately 1,310–1,340. Several lan-
+guages in our evaluation fall close to these thresh-
+olds:
+Hausa (690), Yoruba (694), and Wolof
+(736) sit just below the AfroXLMR-large crossover,
+while Swahili (1,187), Nigerian Pidgin (1,085), and
+Kinyarwanda (1,098) fall between the estimates.
+Model
+Metric
+log10(train)
+Sents.
+AfroXLMR-large
+LAS
+2.931
+854
+RemBERT
+LAS
+3.127
+1,339
+AfroXLMR-large
+UAS
+2.924
+839
+RemBERT
+UAS
+3.118
+1,311
+Table 6: Estimated training-set sizes at which fitted
+RER curve crosses RER = 0, i.e. where transformers’
+predicted error equals the Biaffine LSTM’s.
+6.3
+Morphological Complexity
+To assess whether morphological complexity ex-
+plains residual variance in architecture-level dif-
+ferences beyond what training size captures, we
+extend the mixed models by adding MATTR as
+a predictor alongside log training sentences, and
+compare model fit with and without this term.
+For RemBERT, adding MATTR significantly im-
+proves fit on both LAS (χ2(1) = 5.44, p = .020)
+(a) RERLAS: RemBERT vs. Biaffine LSTM
+(b) RERLAS: AfroXLMR-large vs. Biaffine LSTM
+Figure 2: RERLAS as a function of training size. Plots
+for RERUAS are omitted for brevity, although the trends
+are qualitatively identical, with RERUAS decreasing as
+training data grows.
+and UAS (χ2(1) = 8.65, p = .003), with positive
+mattr z coefficients of ˆβ = 0.050 (p = .023)
+and ˆβ = 0.065 (p = .002) respectively: higher
+morphological complexity is associated with a pos-
+itive shift in RER, even after controlling for data
+size. Similarly, for AfroXLMR-large, both the
+LAS model (χ2(1) = 4.51, p = .034; ˆβ = 0.037,
+p = .043) and the UAS model (χ2(1) = 9.89,
+p = .002; ˆβ = 0.048, p = .001) show a signifi-
+cant effect. The magnitude of the MATTR effect
+is somewhat smaller for AfroXLMR than for Rem-
+BERT on both metrics. It is possible that AfroX-
+LMR’s African-language pretraining partially off-
+sets the elevated RER that complex morphology
+imposes on transformer models, though this was
+not formally tested. In all extended models, the
+negative effect of training size on RER remains
+significant. Figure 3 shows partial regression plots
+in which variables have been residualized for train-
+ing size, isolating the complexity effect.
+6
+
+(a) RemBERT: RERLAS
+(b) AfroXLMR-large: RERLAS
+Figure 3: Partial regression of RERLAS on MATTR for
+RemBERT (top) and AfroXLMR-large (bottom), after
+residualizing both variables for training size. Partial
+regression plots for RERUAS are omitted for brevity, al-
+though the relationship of RERUAS with morphological
+complexity is consistent with that of RERLAS and leads
+to the same conclusions.
+7
+Discussion
+7.1
+Scaling Behavior Across Architectures
+Across both transformer models, RER decreases
+as training corpus size grows, with transform-
+ers achieving RER ≤0 once treebanks reach
+roughly 800–1,400 training sentences. This pat-
+tern is consistent with standard fine-tuning dynam-
+ics: multilingual pre-trained models carry useful
+cross-lingual syntactic representations, but adapt-
+ing those representations to a specific treebank’s
+annotation conventions requires sufficient super-
+vision.
+With little training data, fine-tuning is
+underconstrained—the model lacks sufficient sig-
+nal to effectively map its pre-trained representa-
+tions to the specific structural conventions of the
+target treebank. The Biaffine LSTM, learning its
+representations entirely from the treebank, avoids
+this problem; its inductive biases toward locality
+and sequential composition suit the short-range
+dependencies that dominate treebank data. As su-
+pervision increases, transformers gain the signal
+needed to resolve this ambiguity, RER crosses
+zero, and their cross-lingual transfer becomes ad-
+vantageous.
+The estimated crossover points are practically
+significant: a substantial fraction of African UD
+treebanks fall within the 839–1,339 sentence range,
+meaning the LSTM remains the stronger choice
+for many under-resourced languages in practice.
+RERUAS shows a steeper scaling trajectory than
+RERLAS. We attribute this to structural attach-
+ment being more typologically general and there-
+fore more transferable via pre-training, while la-
+bel assignment depends more heavily on language-
+specific annotation conventions that neither scale
+nor pre-training fully resolves.
+7.2
+Morphological Complexity and the
+Low-Resource Penalty
+Even after controlling for corpus size, morphologi-
+cal complexity predicts a consistent positive shift
+in RER for both transformer models. Morphologi-
+cally rich languages produce a larger inventory of
+distinct inflected forms, compounding the difficulty
+of learning an accurate parser from limited data.
+The effect is weaker for AfroXLMR-large—its
+MATTR coefficient is roughly 1.35 times smaller
+than RemBERT’s—which is consistent with its con-
+tinued pre-training on African-language text pro-
+viding richer coverage of inflectional paradigms,
+partially offsetting the morphological component
+of RER.
+In absolute terms the MATTR effect is mod-
+est, and interpretation is complicated by Xhosa’s
+status as the smallest treebank and most extreme
+MATTR outlier, giving it disproportionate lever-
+age over the complexity estimates. We also note
+that MATTR captures lexical diversity rather than
+morphological complexity directly. More princi-
+pled operationalizations—such as morpheme-per-
+word ratios or paradigm entropy—would provide
+a stronger test in future work. While lemmatizing
+the treebanks could theoretically mitigate this mor-
+phological penalty, robust lemmatizers for many of
+these languages remain unavailable.
+7
+
+7.3
+Stack-Pointer Underperformance
+The Stack-Pointer parser shows RER > 0 on
+nearly every language, suggesting that its architec-
+tural complexity is counterproductive in this data
+regime. Its top-down, depth-first decoding intro-
+duces error propagation, since mistakes at high
+nodes cascade to descendants—an effect that is ex-
+acerbated when data is scarce. The pointer network
+decoder also adds substantially more parameters
+than the Biaffine LSTM, increasing the risk of over-
+fitting on small treebanks, and the higher-order sib-
+ling and grandparent features that distinguish this
+architecture depend on prior parsing decisions that
+may themselves be unreliable under low-resource
+conditions.
+7.4
+Broader Limitations
+Several factors limit the generalizability of our
+conclusions. (1) Our treebanks differ in domain
+and genre, and some of the observed RER dif-
+ferences may reflect genre mismatch rather than
+resource level. (2) For non-transformer models,
+the quality of word embeddings introduces a con-
+found that remains unquantified in our crossover
+estimates, since higher-resource languages benefit
+from embeddings trained on larger corpora. (3)
+Our transformer baselines are all multilingual—
+languages with monolingual pre-trained encoders
+available may show different crossover behavior.
+(4) Typological differences in word order and non-
+projectivity affect parsing difficulty independently
+of resource level and cannot be fully separated
+from it in our sample. (5) The test set for our
+lowest-resource language contains fewer than 50
+sentences, limiting the statistical precision of re-
+ported means. A larger and more diverse language
+sample would provide more robust grounding for
+our claims.
+8
+Conclusion
+This work examined whether transformer-based
+parsers maintain their advantage over recurrent ar-
+chitectures when training data is scarce. Across
+twelve typologically diverse languages spanning
+a wide range of resource levels, our results con-
+sistently show RER > 0 for both AfroXLMR-
+large and RemBERT on the lowest-resource lan-
+guages, while RER decreases with training data
+until transformers achieve RER ≤0 at higher
+resource levels. Statistical analysis confirms a sig-
+nificant negative relationship between training set
+size and RER, and morphological complexity—
+operationalized via MATTR—emerges as a sec-
+ondary predictor of elevated RER: higher mor-
+phological richness compounds the transformer’s
+error disadvantage, an effect that is attenuated for
+AfroXLMR-large, likely due to its pre-training on
+African-language text. These findings suggest that
+data scarcity and morphological richness jointly
+constrain the effectiveness of multilingual trans-
+former fine-tuning in low-resource conditions.
+The LAS scores on the lowest-resource lan-
+guages remain lower than most downstream appli-
+cations require, but they nonetheless carry practical
+value. Imperfect parsers may still assist with an-
+notation, reducing the clerical burden on human
+annotators and accelerating treebank development.
+Parsing accuracy also functions as a sensitive diag-
+nostic of the overall NLP infrastructure available
+for a language. Taken together, these results sug-
+gest that the Biaffine LSTM may be better suited
+for syntactic tool development in under-resourced
+languages—for which RER > 0 favors it over
+transformer-based models—until sufficient anno-
+tated data is available to leverage the representa-
+tional capacity of large pre-trained models.
+Future
+work.
+Several
+directions
+would
+strengthen and extend these findings. The precise
+RER
+=
+0 crossover could be localized by
+systematically subsampling larger treebanks to
+produce controlled, within-language training sets
+of varying sizes. Whether the crossover general-
+izes beyond dependency parsing to structurally
+simpler tasks such as POS tagging and NER,
+and whether zero-shot or few-shot cross-lingual
+transfer can push it toward lower resource levels,
+are open questions. The evaluation should also
+be extended to morphologically rich agglutinative
+languages—Turkic languages, Japanese, Korean,
+and Indigenous languages of the Americas—which
+are not represented in the current study, and to
+architectures such as the TreeCRF parser (Zhang
+et al., 2020), which has been reported to perform
+well under low-resource conditions. Finally, more
+principled measures of morphological complexity—
+such as information-theoretic metrics—would
+allow a cleaner test of whether the elevated
+RER for transformers is specifically driven by
+inflectional disambiguation load, and evaluating
+these architectures on lemmatized data, where
+available, could test if neutralizing inflectional
+variance mitigates this MATTR confound.
+8
+
+Acknowledgments
+This work was supported by the Princeton Lan-
+guage and Intelligence (PLI) Seed Grant Program.
+We thank Janet Pierrehumbert for the conversation
+that led to the central hypothesis on which this
+work is based.
+References
+Anne Abeill´e, Lionel Cl´ement, and Lo¨ıc Li´egeois.
+2019. Un corpus arbor´e pour le franc¸ais : le French
+Treebank [A parsed corpus for French: the French
+treebank].
+Traitement Automatique des Langues,
+60(2):19–43.
+David Ifeoluwa Adelani. 2022.
+AfricaNLP re-
+sources.
+https://github.com/dadelani/
+africanlp-resources. Accessed: 2026-04-27.
+David Ifeoluwa Adelani. 2025.
+Natural language
+processing for african languages.
+arXiv preprint
+arXiv:2507.00297.
+David Ifeoluwa Adelani, Marek Masiak, Israel Abebe
+Azime, Jesujoba Alabi, Atnafu Lambebo Tonja,
+Christine Mwase, Odunayo Ogundepo, Bonaventure
+F. P. Dossou, Akintunde Oladipo, Doreen Nixdorf,
+Chris Chinenye Emezue, Sana Al-azzawi, Blessing
+Sibanda, Davis David, Lolwethu Ndolela, Jonathan
+Mukiibi, Tunde Ajayi, Tatiana Moteu, Brian Odhi-
+ambo, Abraham Owodunni, Nnaemeka Obiefuna,
+Muhidin Mohamed, Shamsuddeen Hassan Muham-
+mad, Teshome Mulugeta Ababu, Saheed Abdul-
+lahi Salahudeen, Mesay Gemeda Yigezu, Tajud-
+deen Gwadabe, Idris Abdulmumin, Mahlet Taye,
+Oluwabusayo Awoyomi, Iyanuoluwa Shode, Tolu-
+lope Adelani, Habiba Abdulganiyu, Abdul-Hakeem
+Omotayo, Adetola Adeeko, Abeeb Afolabi, An-
+uoluwapo Aremu, Olanrewaju Samuel, Clemencia
+Siro, Wangari Kimotho, Onyekachi Ogbu, Chinedu
+Mbonu, Chiamaka Chukwuneke, Samuel Fanijo, Jes-
+sica Ojo, Oyinkansola Awosan, Tadesse Kebede,
+Toadoum Sari Sakayo, Pamela Nyatsine, Freed-
+more Sidume, Oreen Yousuf, Mardiyyah Odu-
+wole, Kanda Tshinu, Ussen Kimanuka, Thina
+Diko, Siyanda Nxakama, Sinodos Nigusse, Ab-
+dulmejid Johar, Shafie Mohamed, Fuad Mire Has-
+san, Moges Ahmed Mehamed, Evrard Ngabire,
+Jules Jules, Ivan Ssenkungu, and Pontus Stenetorp.
+2023. MasakhaNEWS: News topic classification for
+African languages. In Proceedings of the 13th In-
+ternational Joint Conference on Natural Language
+Processing and the 3rd Conference of the Asia-Pacific
+Chapter of the Association for Computational Lin-
+guistics (Volume 1: Long Papers), pages 144–159,
+Nusa Dua, Bali. Association for Computational Lin-
+guistics.
+David Ifeoluwa Adelani, Graham Neubig, Sebastian
+Ruder, Shruti Rijhwani, Michael Beukman, Chester
+Palen-Michel, Constantine Lignos, Jesujoba O. Al-
+abi, Shamsuddeen H. Muhammad, Peter Nabende,
+Cheikh M. Bamba Dione, Andiswa Bukula, Roowei-
+ther Mabuya, Bonaventure F. P. Dossou, Blessing
+Sibanda, Happy Buzaaba, Jonathan Mukiibi, Godson
+Kalipe, Derguene Mbaye, Amelia Taylor, Fatoumata
+Kabore, Chris Chinenye Emezue, Anuoluwapo
+Aremu, Perez Ogayo, Catherine Gitau, Edwin
+Munkoh-Buabeng, Victoire Memdjokam Koagne, Al-
+lahsera Auguste Tapo, Tebogo Macucwa, Vukosi
+Marivate, Elvis Mboning, Tajuddeen Gwadabe, Tosin
+Adewumi, Orevaoghene Ahia, Joyce Nakatumba-
+Nabende, Neo L. Mokono, Ignatius Ezeani, Chia-
+maka Chukwuneke, Mofetoluwa Adeyemi, Gilles Q.
+Hacheme, Idris Abdulmumin, Odunayo Ogundepo,
+Oreen Yousuf, Tatiana Moteu Ngoli, and Dietrich
+Klakow. 2022. MasakhaNER 2.0: Africa-centric
+transfer learning for named entity recognition. In Pro-
+ceedings of the 2022 Conference on Empirical Meth-
+ods in Natural Language Processing, pages 4488–
+4508, Abu Dhabi, United Arab Emirates. Association
+for Computational Linguistics.
+Jesujoba O. Alabi, David Ifeoluwa Adelani, Marius
+Mosbach, and Dietrich Klakow. 2022. Adapting pre-
+trained language models to African languages via
+multilingual adaptive fine-tuning. In Proceedings of
+the 29th International Conference on Computational
+Linguistics, pages 4336–4349, Gyeongju, Republic
+of Korea. International Committee on Computational
+Linguistics.
+Liesbeth Augustinus, Peter Dirix, Daniel van Niek-
+erk, Ineke Schuurman, Vincent Vandeghinste, Frank
+Van Eynde, and Gerhard van Huyssteen. 2016. Afri-
+Booms: An online treebank for Afrikaans. In Pro-
+ceedings of the Tenth International Conference on
+Language Resources and Evaluation (LREC’16),
+pages 677–682, Portoroˇz, Slovenia. European Lan-
+guage Resources Association (ELRA).
+Verginica Barbu Mititelu and Elena Irimia. 2016. Lin-
+guistic data retrievable from a treebank.
+In Pro-
+ceedings of the Second International Conference on
+Computational Linguistics in Bulgaria (CLIB 2016),
+pages 19–27, Sofia, Bulgaria. Department of Compu-
+tational Linguistics, Institute for Bulgarian Language,
+Bulgarian Academy of Sciences.
+G´abor Bella et al. 2023. Towards bridging the digital
+language divide. arXiv preprint arXiv:2307.13405.
+Piotr Bojanowski, Edouard Grave, Armand Joulin, and
+Tomas Mikolov. 2017. Enriching word vectors with
+subword information. Transactions of the Associa-
+tion for Computational Linguistics, 5:135–146.
+Gosse Bouma, Gertjan van Noord, and Robert Malouf.
+2001. Alpino: Wide-coverage computational anal-
+ysis of dutch. In Computational Linguistics in the
+Netherlands 2000, volume 37 of Language and Com-
+puters: Studies in Practical Linguistics, pages 45–59,
+Amsterdam. Rodopi.
+Ted Briscoe and John Carroll. 1993. Generalised prob-
+abilistic LR parsing of natural language (corpora)
+9
+
+with unification-based grammars. In Sixth Confer-
+ence of the European Chapter of the Association for
+Computational Linguistics, Utrecht, The Netherlands.
+Association for Computational Linguistics.
+Happy Buzaaba, Cheikh Mouhamadou Bamba Dione,
+David Ifeoluwa Adelani, Sylvain Kahane, Kim
+Gerdes, Bruno Guillaume, Kevin Guan, Aremu
+Anuoluwapo, Naome A. Etori, Shamsuddeen Has-
+san Muhammad, Utitofon Inyang, Peter Nabende,
+David Sabiiti Bamutura, Andiswa Bukula, Chinedu
+Uchechukwu, Rooweither Mabuya, Idris Akinade,
+and Christiane Fellbaum. 2026. AfriSUD: A depen-
+dency treebank collection for evaluating models on
+african languages. arXiv preprint arXiv:2606.12708.
+Bernard Caron, Marine Courtin, Kim Gerdes, and Syl-
+vain Kahane. 2019. A surface-syntactic UD treebank
+for Naija. In Proceedings of the Third Workshop on
+Universal Dependencies (UDW, SyntaxFest 2019),
+Paris, France. Association for Computational Lin-
+guistics.
+Yoeng-Jin Chu. 1965. On the shortest arborescence of a
+directed graph. Scientia Sinica, 14:1396–1400.
+Hyung Won Chung, Thibault Fevry, Henry Tsai, Melvin
+Johnson, and Sebastian Ruder. 2020. Rethinking
+embedding coupling in pre-trained language models.
+arXiv preprint arXiv:2010.12821.
+Alexis Conneau, Kartikay Khandelwal, Naman Goyal,
+Vishrav Chaudhary, Guillaume Wenzek, Francisco
+Guzm´an, Edouard Grave, Myle Ott, Luke Zettle-
+moyer, and Veselin Stoyanov. 2020. Unsupervised
+cross-lingual representation learning at scale. In Pro-
+ceedings of the 58th Annual Meeting of the Asso-
+ciation for Computational Linguistics, pages 8440–
+8451, Online. Association for Computational Lin-
+guistics.
+Michael A. Covington and Joe D. McFall. 2010. Cutting
+the gordian knot: The moving-average type-token
+ratio (MATTR). Journal of Quantitative Linguistics,
+17(2):94–100.
+Mostafa Dehghani, Stephan Gouws, Oriol Vinyals,
+Jakob Uszkoreit, and Łukasz Kaiser. 2018. Univer-
+sal transformers. arXiv preprint arXiv:1807.03819.
+Published at ICLR 2019.
+Cheikh Bamba Dione. 2019. Developing Universal De-
+pendencies for Wolof. In Proceedings of the Third
+Workshop on Universal Dependencies (UDW, Syn-
+taxFest 2019), pages 12–23, Paris, France. Associa-
+tion for Computational Linguistics.
+Cheikh M. Bamba Dione, David Ifeoluwa Adelani,
+Peter Nabende, Jesujoba Alabi, Thapelo Sindane,
+Happy Buzaaba, Shamsuddeen Hassan Muhammad,
+Chris Chinenye Emezue, Perez Ogayo, Anuoluwapo
+Aremu, Catherine Gitau, Derguene Mbaye, Jonathan
+Mukiibi, Blessing Sibanda, Bonaventure F. P. Dos-
+sou, Andiswa Bukula, Rooweither Mabuya, Allah-
+sera Auguste Tapo, Edwin Munkoh-Buabeng, Vic-
+toire Memdjokam Koagne, Fatoumata Ouoba Ka-
+bore, Amelia Taylor, Godson Kalipe, Tebogo
+Macucwa, Vukosi Marivate, Tajuddeen Gwadabe,
+Mboning Tchiaze Elvis, Ikechukwu Onyenwe, Gra-
+tien Atindogbe, Tolulope Adelani, Idris Akinade,
+Olanrewaju Samuel, Marien Nahimana, Th´eog`ene
+Musabeyezu, Emile Niyomutabazi, Ester Chimhenga,
+Kudzai Gotosa, Patrick Mizha, Apelete Agbolo, Sey-
+dou Traore, Chinedu Uchechukwu, Aliyu Yusuf,
+Muhammad Abdullahi, and Dietrich Klakow. 2023.
+MasakhaPOS: Part-of-speech tagging for typolog-
+ically diverse African languages. In Proceedings
+of the 61st Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers),
+pages 10883–10900, Toronto, Canada. Association
+for Computational Linguistics.
+Jesse Dodge, Gabriel Ilharco, Roy Schwartz, Ali
+Farhadi, Hannaneh Hajishirzi, and Noah A. Smith.
+2020.
+Fine-tuning pretrained language models:
+Weight initializations, data orders, and early stop-
+ping. arXiv preprint arXiv:2002.06305.
+Bruce C. Donaldson. 1993. A Grammar of Afrikaans.
+Number 8 in Mouton Grammar Library. Mouton de
+Gruyter, Berlin and New York.
+Timothy Dozat and Christopher D. Manning. 2017.
+Deep biaffine attention for neural dependency pars-
+ing. In Proceedings of the 5th International Confer-
+ence on Learning Representations.
+Jack Edmonds. 1967. Optimum branchings. Journal
+of Research of the National Bureau of Standards B,
+71(4):233–240.
+Luke Gessler and Amir Zeldes. 2022. MicroBERT: Ef-
+fective training of low-resource monolingual BERTs
+through parameter reduction and multitask learning.
+In Proceedings of the 2nd Workshop on Multi-lingual
+Representation Learning (MRL), pages 86–99, Abu
+Dhabi, United Arab Emirates (Hybrid). Association
+for Computational Linguistics.
+Edouard Grave, Piotr Bojanowski, Prakhar Gupta, Ar-
+mand Joulin, and Tomas Mikolov. 2018. Learning
+word vectors for 157 languages. In Proceedings of
+the International Conference on Language Resources
+and Evaluation (LREC 2018).
+Stefan Gr¨unewald, Annemarie Friedrich, and Jonas
+Kuhn. 2021. Applying occam’s razor to transformer-
+based dependency parsing:
+What works, what
+doesn’t, and what is really necessary. In Proceed-
+ings of the 17th International Conference on Parsing
+Technologies (IWPT 2021), pages 131–144, Bangkok,
+Thailand.
+Prabhat Kumar Jha, Rajesh Kumar, and Vikram Sahula.
+2020. A survey of the model transfer approaches
+to cross-lingual dependency parsing. ACM Transac-
+tions on Asian and Low-Resource Language Informa-
+tion Processing, 19(3):1–39.
+Oluwadara Kalejaiye, Luel Hagos Beyene, David Ife-
+oluwa Adelani, Mmekut-mfon Gabriel Edet, Anie-
+fon Daniel Akpan, Eno-Abasi Urua, and Anietie
+10
+
+Andy. 2025. Ibom NLP: A step toward inclusive
+natural language processing for Nigeria’s minority
+languages. In Proceedings of the 14th International
+Joint Conference on Natural Language Processing
+and the 4th Conference of the Asia-Pacific Chapter
+of the Association for Computational Linguistics.
+Dan Kondratyuk and Milan Straka. 2019. 75 languages,
+1 model: Parsing universal dependencies universally.
+In Proceedings of the 2019 Conference on Empirical
+Methods in Natural Language Processing and the
+9th International Joint Conference on Natural Lan-
+guage Processing (EMNLP-IJCNLP), pages 2779–
+2795, Hong Kong, China. Association for Computa-
+tional Linguistics.
+Ying Li, Zhenghua Li, Min Zhang, Rui Wang, Sheng Li,
+and Luo Si. 2019. Self-attentive biaffine dependency
+parsing. In Proceedings of the Twenty-Eighth Inter-
+national Joint Conference on Artificial Intelligence
+(IJCAI-19), pages 5067–5073, Macao.
+Gabriel Lindenmaier, Sean Papay, and Sebastian Pad´o.
+2025. Efficient language modeling for low-resource
+settings with hybrid RNN-Transformer architectures.
+arXiv preprint arXiv:2502.00617.
+Xuezhe Ma. 2024. NeuroNLP2: Deep neural models
+for core NLP tasks (Pytorch version).
+Xuezhe Ma, Zecong Hu, Jingzhou Liu, Nanyun Peng,
+Graham Neubig, and Eduard Hovy. 2018. Stack-
+pointer networks for dependency parsing. In Pro-
+ceedings of the 56th Annual Meeting of the Associa-
+tion for Computational Linguistics (Volume 1: Long
+Papers), pages 1403–1414, Melbourne, Australia. As-
+sociation for Computational Linguistics.
+Martin
+Maiden,
+Adina
+Dragomirescu,
+Gabriela
+Pan˘a Dindelegan, Oana Ut,˘a, and Rodica Zafiu. 2021.
+The Oxford History of Romanian Morphology. Ox-
+ford University Press, Oxford.
+R. Thomas McCoy, Robert Frank, and Tal Linzen. 2020.
+Does syntax need to grow on trees? Sources of hier-
+archical inductive bias in sequence-to-sequence net-
+works. Transactions of the Association for Computa-
+tional Linguistics, 8:125–140.
+John H. McWhorter. 2001. The world’s simplest gram-
+mars are creole grammars.
+Linguistic Typology,
+5:125–166.
+Shamsuddeen Hassan Muhammad, Idris Abdulmumin,
+Abinew Ali Ayele, Nedjma Ousidhoum, David Ife-
+oluwa Adelani, Seid Muhie Yimam, Ibrahim Sa’id
+Ahmad, Meriem Beloucif, Saif M. Mohammad, Se-
+bastian Ruder, Oumaima Hourrane, Pavel Brazdil,
+Alipio Jorge, Felermino D´ario M´ario Ant´onio Ali,
+Davis David, Salomey Osei, Bello Shehu Bello,
+Falalu Ibrahim, Tajuddeen Gwadabe, Samuel Ru-
+tunda, Tadesse Belay, Wendimu Baye Messelle,
+Hailu Beshada Balcha, Sisay Adugna Chala, Ha-
+gos Tesfahun Gebremichael, Bernard Opoku, and
+Stephen Arthur. 2023.
+AfriSenti: A Twitter sen-
+timent analysis benchmark for African languages.
+In Proceedings of the 2023 Conference on Empiri-
+cal Methods in Natural Language Processing, pages
+13968–13981, Singapore. Association for Computa-
+tional Linguistics.
+Wilhelmina Nekoto, Vukosi Marivate, Tshinondiwa
+Matsila,
+Timi
+Fasubaa,
+Taiwo
+Fagbohungbe,
+Solomon Oluwole Akinola, Shamsuddeen Muham-
+mad, Salomon Kabongo Kabenamualu, Salomey
+Osei, Freshia Sackey, Rubungo Andre Niyongabo,
+Ricky Macharm, Perez Ogayo, Orevaoghene Ahia,
+Musie Meressa Berhe,
+Mofetoluwa Adeyemi,
+Masabata Mokgesi-Selinga, Lawrence Okegbemi,
+Laura Martinus, Kolawole Tajudeen, Kevin Degila,
+Kelechi Ogueji, Kathleen Siminyu, Julia Kreutzer,
+Jason Webster, Jamiil Toure Ali, Jade Abbott,
+Iroro Orife, Ignatius Ezeani, Idris Abdulkadir Dan-
+gana, Herman Kamper, Hady Elsahar, Goodness
+Duru, Ghollah Kioko, Murhabazi Espoir, Elan van
+Biljon, Daniel Whitenack, Christopher Onyefuluchi,
+Chris Chinenye Emezue, Bonaventure F. P. Dossou,
+Blessing Sibanda, Blessing Bassey, Ayodele Olabiyi,
+Arshath Ramkilowan, Alp ¨Oktem, Adewale Akin-
+faderin, and Abdallah Bashir. 2020. Participatory re-
+search for low-resourced machine translation: A case
+study in African languages. In Findings of the Asso-
+ciation for Computational Linguistics: EMNLP 2020,
+pages 2144–2160, Online. Association for Computa-
+tional Linguistics.
+Solomon Nsumba, Benjamin Akera, Evelyn Nafula
+Ouma, Medadi Ssentanda, Deo Kawalya, Engineer
+Bainomugisha, Ernest Tonny Mwebaze, and John
+Quinn. 2026.
+SALT-31: A machine translation
+benchmark dataset for 31 Ugandan languages. In
+Proceedings of the 7th Workshop on African Natu-
+ral Language Processing (AfricaNLP 2026), pages
+211–216. Association for Computational Linguistics.
+Antoine Nzeyimana. 2024. Low-resource neural ma-
+chine translation with morphological modeling. In
+Findings of the Association for Computational Lin-
+guistics: NAACL 2024, pages 182–195, Mexico City,
+Mexico. Association for Computational Linguistics.
+Kelechi Ogueji. 2022. Afriberta: Towards viable multi-
+lingual language models for low-resource languages.
+Master’s thesis, University of Waterloo, Waterloo,
+Ontario, Canada, August.
+Tracy N. Probert. 2019. A comparison of the early
+reading strategies of isiXhosa and Setswana first lan-
+guage learners. South African Journal of Childhood
+Education, 9(1).
+Umut Sulubacak, Memduh Gokirmak, Francis Tyers,
+C¸ a˘grı C¸ ¨oltekin, Joakim Nivre, and G¨uls¸en Eryi˘git.
+2016. Universal dependencies for turkish. In Pro-
+ceedings of COLING 2016, the 26th International
+Conference on Computational Linguistics: Technical
+Papers, pages 3444–3454, Osaka, Japan. The COL-
+ING 2016 Organizing Committee.
+Ke Tran, Arianna Bisazza, and Christof Monz. 2018.
+The importance of being recurrent for modeling hier-
+11
+
+archical structure. In Proceedings of the 2018 Con-
+ference on Empirical Methods in Natural Language
+Processing, pages 4731–4736, Brussels, Belgium.
+Association for Computational Linguistics.
+Zihan Wang, Karthikeyan K, Stephen Mayhew, and Dan
+Roth. 2020. Extending multilingual BERT to low-
+resource languages. In Findings of the Association
+for Computational Linguistics: EMNLP 2020, pages
+2649–2656, Online. Association for Computational
+Linguistics.
+Shijie Wu and Mark Dredze. 2020. Are all languages
+created equal in multilingual BERT? arXiv preprint
+arXiv:2005.09093.
+Yu Zhang. 2024. SuPar: State-of-the-art Parsers for
+Natural Language. Python package.
+Yu Zhang, Zhenghua Li, and Min Zhang. 2020. Effi-
+cient second-order TreeCRF for neural dependency
+parsing. In Proceedings of the 58th Annual Meet-
+ing of the Association for Computational Linguistics,
+pages 3295–3305, Online. Association for Computa-
+tional Linguistics.
+He Zhou, Daniel Dakota, and Sandra K¨ubler. 2025.
+Cross-lingual dependency parsing for a language
+with a unique script. Natural Language Processing,
+31(2):277–305.
+12

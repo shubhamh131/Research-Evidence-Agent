@@ -131,3 +131,23 @@ class PaperCard(BaseModel):
     title: str
     card: StudyCard
     quote_verified: bool = False
+
+
+class ConflictExplanation(BaseModel):
+    explanation: str = Field(
+        description="One or two sentences: the likely reason the papers disagree, based only on their setting and method. Say “no clear reason in the evidence” if none is visible."
+    )
+    factor: Literal[
+        "task", "dataset", "model size", "data size", "method", "unclear"
+    ] = Field(description="The main factor behind the disagreement")
+
+
+class Conflict(BaseModel):
+    status: Literal["agreement", "conflict", "insufficient"]
+    supporting_ids: list[str] = Field(default_factory=list)
+    opposing_ids: list[str] = Field(default_factory=list)
+    mixed_ids: list[str] = Field(default_factory=list)
+    explanation: str = ""
+    factor: Literal[
+        "task", "dataset", "model size", "data size", "method", "unclear"
+    ] = "unclear"

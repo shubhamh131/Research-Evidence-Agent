@@ -2,12 +2,12 @@ import json
 import time
 from pathlib import Path
 
-from app.chunk import make_chunks, split_sections
+from app.evidence.chunk import make_chunks, split_sections
 from app.models import Paper
-from app.pdf import fetch_paper_text
+from app.evidence.pdf import fetch_paper_text
 from app.pipeline import run_pipeline
-from app.rerank import rerank
-from app.retrieve import retrieve
+from app.evidence.rerank import rerank
+from app.evidence.retrieve import retrieve
 
 question = "Are RNNs replaced by transformers?"
 times = {}

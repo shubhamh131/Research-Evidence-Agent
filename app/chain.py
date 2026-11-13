@@ -2,11 +2,12 @@ import time
 
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
-from app.collect import collect_papers
+from app.collection.collect import collect_papers
 from app.evidence import gather_evidence
 from app.planner import make_plan
-from app.prefilter import embed_filter
-from app.screen import screen_papers
+from app.screening.prefilter import embed_filter
+from app.screening.screen import screen_papers
+from app.cards import make_cards
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
@@ -45,6 +46,14 @@ chain = (
         evidence=timed(
             "evidence",
             lambda x: gather_evidence(x["plan"], [s.paper for s in x["top"]]),
+        )
+    )
+    | RunnablePassthrough.assign(
+        cards=timed(
+            "cards",
+            lambda x: make_cards(
+                x["question"], [s.paper for s in x["top"]], x["evidence"]
+            ),
         )
     )
 )

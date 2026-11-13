@@ -1,5 +1,5 @@
 from app.planner import make_plan
-from app.collect import collect_papers
+from app.collection.collect import collect_papers
 
 plan = make_plan("Are RNNs replaced by transformers?")
 papers = collect_papers(plan)

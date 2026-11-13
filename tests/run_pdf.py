@@ -1,5 +1,5 @@
-from app.chunk import split_sections, make_chunks
-from app.pdf import fetch_paper_text
+from app.evidence.chunk import split_sections, make_chunks
+from app.evidence.pdf import fetch_paper_text
 
 
 text = fetch_paper_text("1706.03762")

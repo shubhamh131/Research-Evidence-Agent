@@ -1,10 +1,10 @@
 import time
 
 
-from app.collect import collect_papers
+from app.collection.collect import collect_papers
 from app.planner import make_plan
-from app.prefilter import embed_filter
-from app.screen import screen_papers
+from app.screening.prefilter import embed_filter
+from app.screening.screen import screen_papers
 
 
 def run_pipeline(question: str, top_k: int = 5):
