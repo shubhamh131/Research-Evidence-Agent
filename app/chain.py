@@ -8,6 +8,9 @@ from app.planner import make_plan
 from app.screening.prefilter import embed_filter
 from app.screening.screen import screen_papers
 from app.cards import make_cards
+from app.conflicts import explain_conflict
+
+
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
@@ -55,6 +58,9 @@ chain = (
                 x["question"], [s.paper for s in x["top"]], x["evidence"]
             ),
         )
+    )
+    | RunnablePassthrough.assign(
+        conflict=timed("conflict", lambda x: explain_conflict(x["cards"]))
     )
 )
 

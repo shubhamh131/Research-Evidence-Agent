@@ -106,7 +106,7 @@ class StudyCard(BaseModel):
         description="What this paper's finding implies for the question, in one short sentence."
     )
     answer: Literal["yes", "no", "partly", "unclear"] = Field(
-        description="Answer the question using ONLY this paper's result: 'yes', 'no', 'partly' if the result is mixed, or 'unclear' if it does not decide the question."
+        description="Which way does THIS paper's result lean on the question? 'yes' if it leans toward yes (even for one task or dataset), 'no' if it leans toward no, 'partly' if it shows both, 'unclear' only if the paper reports no result about the question."
     )
 
     @property

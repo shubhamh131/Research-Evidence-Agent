@@ -37,6 +37,13 @@ if mode == "full":
         print(
             f"{pc.arxiv_id} | {pc.card.direction:11} | verified={pc.quote_verified} | {pc.card.finding[:70]}"
         )
+    c = result["conflict"]
+    print(f"\nconflict: {c.status} | factor: {c.factor}")
+    print(f"  supporting: {c.supporting_ids}")
+    print(f"  opposing:   {c.opposing_ids}")
+    print(f"  mixed:      {c.mixed_ids}")
+    print(f"  why: {c.explanation}")
+
     print_times(times)
 
     data = {
@@ -87,6 +94,7 @@ elif mode == "cards":
         print(f"  has_finding={c.has_finding}  direction={c.direction}")
         print(f"  finding: {c.finding}")
         print(f"  quote in passages: {c.quote in passages}")
+
 
 else:
     sys.exit("Usage: python run.py [full|ids|evidence]")
