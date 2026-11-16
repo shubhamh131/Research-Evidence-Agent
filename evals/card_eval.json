@@ -1,0 +1,125 @@
+{
+  "question": "Are RNNs replaced by transformers?",
+  "annotation_guide": "has_finding is true only when this paper's own tested results bear on the question; background claims do not count. answer is yes/no/partly/unclear for the direction of those results.",
+  "items": [
+    {
+      "arxiv_id": "1909.06317v2",
+      "title": "A Comparative Study on Transformer vs RNN in Speech Applications",
+      "abstract": "Sequence-to-sequence models have been widely used in end-to-end speech processing, for example, automatic speech recognition (ASR), speech translation (ST), and text-to-speech (TTS). This paper focuses on an emergent sequence-to-sequence model called Transformer, which achieves state-of-the-art performance in neural machine translation and other natural language processing applications. We undertook intensive studies in which we experimentally compared and analyzed Transformer and conventional recurrent neural networks (RNN) in a total of 15 ASR, one multilingual ASR, one ST, and two TTS benchmarks. Our experiments revealed various training tips and significant performance benefits obtained with Transformer for each task including the surprising superiority of Transformer in 13/15 ASR benchmarks in comparison with RNN. We are preparing to release Kaldi-style reproducible recipes using open source and publicly available datasets for all the ASR, ST, and TTS tasks for the community to succeed our exciting outcomes.",
+      "passages": [],
+      "expected_has_finding": true,
+      "expected_answer": "yes",
+      "label_note": "Direct experiments favor Transformers in most ASR benchmarks, though not all 15."
+    },
+    {
+      "arxiv_id": "2412.15978v1",
+      "title": "BabyHGRN: Exploring RNNs for Sample-Efficient Training of Language Models",
+      "abstract": "This paper explores the potential of recurrent neural networks (RNNs) and other subquadratic architectures as competitive alternatives to transformer-based models in low-resource language modeling scenarios. We utilize HGRN2 (Qin et al., 2024), a recently proposed RNN-based architecture, and comparatively evaluate its effectiveness against transformer-based baselines and other subquadratic architectures (LSTM, xLSTM, Mamba). Our experimental results show that BABYHGRN, our HGRN2 language model, outperforms transformer-based models in both the 10M and 100M word tracks of the challenge, as measured by their performance on the BLiMP, EWoK, GLUE and BEAR benchmarks. Further, we show the positive impact of knowledge distillation. Our findings challenge the prevailing focus on transformer architectures and indicate the viability of RNN-based models, particularly in resource-constrained environments.",
+      "passages": [],
+      "expected_has_finding": true,
+      "expected_answer": "no",
+      "label_note": "In these low-resource settings, the paper reports better results from an RNN-based model."
+    },
+    {
+      "arxiv_id": "2309.11400v1",
+      "title": "Transformers versus LSTMs for electronic trading",
+      "abstract": "With the rapid development of artificial intelligence, long short term memory (LSTM), one kind of recurrent neural network (RNN), has been widely applied in time series prediction.   Like RNN, Transformer is designed to handle the sequential data. As Transformer achieved great success in Natural Language Processing (NLP), researchers got interested in Transformer's performance on time series prediction, and plenty of Transformer-based solutions on long time series forecasting have come out recently. However, when it comes to financial time series prediction, LSTM is still a dominant architecture. Therefore, the question this study wants to answer is: whether the Transformer-based model can be applied in financial time series prediction and beat LSTM.   To answer this question, various LSTM-based and Transformer-based models are compared on multiple financial prediction tasks based on high-frequency limit order book data. A new LSTM-based model called DLSTM is built and new architecture for the Transformer-based model is designed to adapt for financial prediction. The experiment result reflects that the Transformer-based model only has the limited advantage in absolute price sequence prediction. The LSTM-based models show better and more robust performance on difference sequence prediction, such as price difference and price movement.",
+      "passages": [
+        {
+          "section": "Abstract",
+          "text": "The experiment result reflects that the Transformer-based model only has the limited advantage in absolute price sequence prediction. The LSTM-based models show better and more robust performance on difference sequence prediction, such as price difference and price movement."
+        }
+      ],
+      "expected_has_finding": true,
+      "expected_answer": "partly",
+      "label_note": "Mixed: Transformer has a limited advantage on one task, while LSTMs win on price differences and movements."
+    },
+    {
+      "arxiv_id": "2002.02562v2",
+      "title": "Transformer Transducer: A Streamable Speech Recognition Model with Transformer Encoders and RNN-T Loss",
+      "abstract": "In this paper we present an end-to-end speech recognition model with Transformer encoders that can be used in a streaming speech recognition system. Transformer computation blocks based on self-attention are used to encode both audio and label sequences independently. The activations from both audio and label encoders are combined with a feed-forward layer to compute a probability distribution over the label space for every combination of acoustic frame position and label history. This is similar to the Recurrent Neural Network Transducer (RNN-T) model, which uses RNNs for information encoding instead of Transformer encoders. The model is trained with the RNN-T loss well-suited to streaming decoding. We present results on the LibriSpeech dataset showing that limiting the left context for self-attention in the Transformer layers makes decoding computationally tractable for streaming, with only a slight degradation in accuracy. We also show that the full attention version of our model beats the-state-of-the art accuracy on the LibriSpeech benchmarks. Our results also show that we can bridge the gap between full attention and limited attention versions of our model by attending to a limited number of future frames.",
+      "passages": [],
+      "expected_has_finding": true,
+      "expected_answer": "yes",
+      "label_note": "The paper reports strong Transformer-based speech recognition results, including state-of-the-art accuracy."
+    },
+    {
+      "arxiv_id": "2404.05971v1",
+      "title": "Does Transformer Interpretability Transfer to RNNs?",
+      "abstract": "Recent advances in recurrent neural network architectures, such as Mamba and RWKV, have enabled RNNs to match or exceed the performance of equal-size transformers in terms of language modeling perplexity and downstream evaluations, suggesting that future systems may be built on completely new architectures. In this paper, we examine if selected interpretability methods originally designed for transformer language models will transfer to these up-and-coming recurrent architectures. Specifically, we focus on steering model outputs via contrastive activation addition, on eliciting latent predictions via the tuned lens, and eliciting latent knowledge from models fine-tuned to produce false outputs under certain conditions. Our results show that most of these techniques are effective when applied to RNNs, and we show that it is possible to improve some of them by taking advantage of RNNs' compressed state.",
+      "passages": [
+        {
+          "section": "1 Introduction",
+          "text": "The transformer architecture has all but replaced the recurrent neural network (RNN) in natural language processing in recent years due to its impressive ability to handle long-distance dependencies and its parallelizable training across the time dimension."
+        },
+        {
+          "section": "6 Conclusion",
+          "text": "Overall, we find that the interpretability tools we examined largely work out-of-the-box for state-of-the-art RNN architectures, and that the performance recovered is similar, but not identical, to that of transformers."
+        }
+      ],
+      "expected_has_finding": false,
+      "expected_answer": "unclear",
+      "label_note": "The replacement statement is background; this paper tests interpretability tools, not whether Transformers replace RNNs."
+    },
+    {
+      "arxiv_id": "2405.09508v2",
+      "title": "Modeling Bilingual Sentence Processing: Evaluating RNN and Transformer Architectures for Cross-Language Structural Priming",
+      "abstract": "This study evaluates the performance of Recurrent Neural Network (RNN) and Transformer models in replicating cross-language structural priming, a key indicator of abstract grammatical representations in human language processing. Focusing on Chinese-English priming, which involves two typologically distinct languages, we examine how these models handle the robust phenomenon of structural priming, where exposure to a particular sentence structure increases the likelihood of selecting a similar structure subsequently. Our findings indicate that transformers outperform RNNs in generating primed sentence structures, with accuracy rates that exceed 25.84% to 33. 33%. This challenges the conventional belief that human sentence processing primarily involves recurrent and immediate processing and suggests a role for cue-based retrieval mechanisms. This work contributes to our understanding of how computational models may reflect human cognitive processes across diverse language families.",
+      "passages": [],
+      "expected_has_finding": true,
+      "expected_answer": "yes",
+      "label_note": "A direct comparison favors Transformers for the tested structural-priming outcomes."
+    },
+    {
+      "arxiv_id": "2402.18510v4",
+      "title": "RNNs Are Not Transformers (Yet): The Key Bottleneck on In-Context Retrieval",
+      "abstract": "This paper investigates the gap in representation powers of Recurrent Neural Networks (RNNs) and Transformers in the context of solving algorithmic problems. We focus on understanding whether RNNs, known for their memory efficiency in handling long sequences, can match the performance of Transformers, particularly when enhanced with Chain-of-Thought (CoT) prompting. Our theoretical analysis reveals that CoT improves RNNs but is insufficient to close the gap with Transformers. A key bottleneck lies in the inability of RNNs to perfectly retrieve information from the context, even with CoT: for several tasks that explicitly or implicitly require this capability, such as associative recall and determining if a graph is a tree, we prove that RNNs are not expressive enough to solve the tasks while Transformers can solve them with ease. Conversely, we prove that adopting techniques to enhance the in-context retrieval capability of RNNs, including Retrieval-Augmented Generation (RAG) and adding a single Transformer layer, can elevate RNNs to be capable of solving all polynomial-time solvable problems with CoT, hence closing the representation gap with Transformers.3",
+      "passages": [
+        {
+          "section": "Abstract",
+          "text": "Conversely, we prove that adopting techniques to enhance the in-context retrieval capability of RNNs, including Retrieval-Augmented Generation (RAG) and adding a single Transformer layer, can elevate RNNs to be capable of solving all polynomial-time solvable problems with CoT, hence closing the representation gap with Transformers."
+        }
+      ],
+      "expected_has_finding": true,
+      "expected_answer": "partly",
+      "label_note": "Vanilla RNNs fall short on studied tasks, while proposed retrieval enhancements can close the gap."
+    },
+    {
+      "arxiv_id": "2307.02064v2",
+      "title": "Facing Off World Model Backbones: RNNs, Transformers, and S4",
+      "abstract": "World models are a fundamental component in model-based reinforcement learning (MBRL). To perform temporally extended and consistent simulations of the future in partially observable environments, world models need to possess long-term memory. However, state-of-the-art MBRL agents, such as Dreamer, predominantly employ recurrent neural networks (RNNs) as their world model backbone, which have limited memory capacity. In this paper, we seek to explore alternative world model backbones for improving long-term memory. In particular, we investigate the effectiveness of Transformers and Structured State Space Sequence (S4) models, motivated by their remarkable ability to capture long-range dependencies in low-dimensional sequences and their complementary strengths. We propose S4WM, the first world model compatible with parallelizable SSMs including S4 and its variants. By incorporating latent variable modeling, S4WM can efficiently generate high-dimensional image sequences through latent imagination. Furthermore, we extensively compare RNN-, Transformer-, and S4-based world models across four sets of environments, which we have tailored to assess crucial memory capabilities of world models, including long-term imagination, context-dependent recall, reward prediction, and memory-based reasoning. Our findings demonstrate that S4WM outperforms Transformer-based world models in terms of long-term memory, while exhibiting greater efficiency during training and imagination. These results pave the way for the development of stronger MBRL agents.",
+      "passages": [
+        {
+          "section": "1 Introduction",
+          "text": "Our results show that S4WM outperforms RNNs and Transformers across multiple memory-demanding tasks, including long-term imagination, context-dependent recall, reward prediction, and memory-based reasoning. In terms of speed, S4WM trains the fastest, while RNNs exhibit significantly higher imagination throughput."
+        }
+      ],
+      "expected_has_finding": true,
+      "expected_answer": "partly",
+      "label_note": "Results vary by outcome: S4WM leads on memory tasks, while RNNs retain a throughput advantage."
+    },
+    {
+      "arxiv_id": "2005.14327v2",
+      "title": "On the Comparison of Popular End-to-End Models for Large Scale Speech Recognition",
+      "abstract": "Recently, there has been a strong push to transition from hybrid models to end-to-end (E2E) models for automatic speech recognition. Currently, there are three promising E2E methods: recurrent neural network transducer (RNN-T), RNN attentionbased encoder-decoder (AED), and Transformer-AED. In this study, we conduct an empirical comparison of RNN-T, RNNAED, and Transformer-AED models, in both non-streaming and streaming modes. We use 65 thousand hours of Microsoft anonymized training data to train these models. As E2E models are more data hungry, it is better to compare their effectiveness with large amount of training data. To the best of our knowledge, no such comprehensive study has been conducted yet. We show that although AED models are stronger than RNN-T in the non-streaming mode, RNN-T is very competitive in streaming mode if its encoder can be properly initialized. Among all three E2E models, transformer-AED achieved the best accuracy in both streaming and non-streaming mode. We show that both streaming RNN-T and transformer-AED models can obtain better accuracy than a highly-optimized hybrid model.",
+      "passages": [
+        {
+          "section": "Abstract",
+          "text": "Among all three E2E models, transformer-AED achieved the best accuracy in both streaming and non-streaming mode. We show that both streaming RNN-T and transformer-AED models can obtain better accuracy than a highly-optimized hybrid model."
+        }
+      ],
+      "expected_has_finding": true,
+      "expected_answer": "partly",
+      "label_note": "Mixed: Transformer-AED has best accuracy, while RNN-T remains competitive in streaming."
+    },
+    {
+      "arxiv_id": "1909.11299v2",
+      "title": "Mixout: Effective Regularization to Finetune Large-Scale Pretrained Language Models",
+      "abstract": "In natural language processing, it has been observed recently that generalization could be greatly improved by ﬁnetuning a large-scale language model pretrained on a large unlabeled corpus. Despite its recent success and wide adoption, ﬁnetuning a large pretrained language model on a downstream task is prone to degenerate performance when there are only a small number of training instances available. In this paper, we introduce a new regularization technique, to which we refer as “mixout”, motivated by dropout. Mixout stochastically mixes the parameters of two models. We show that our mixout technique regularizes learning to minimize the deviation from one of the two models and that the strength of regularization adapts along the optimization trajectory. We empirically evaluate the proposed mixout and its variants on ﬁnetuning a pretrained language model on downstream tasks. More speciﬁcally, we demonstrate that the stability of ﬁnetuning and the average accuracy greatly increase when we use the proposed approach to regularize ﬁnetuning of BERT on downstream tasks in GLUE.",
+      "passages": [],
+      "expected_has_finding": false,
+      "expected_answer": "unclear",
+      "label_note": "The paper studies fine-tuning regularization and does not compare RNNs with Transformers."
+    }
+  ]
+}

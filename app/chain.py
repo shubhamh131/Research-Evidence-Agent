@@ -3,7 +3,7 @@ import time
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
 from app.collection.collect import collect_papers
-from app.evidence import gather_evidence
+from app.evidence.gather import gather_evidence
 from app.planner import make_plan
 from app.screening.prefilter import embed_filter
 from app.screening.screen import screen_papers

@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 
-from app.evidence import gather_evidence
+from app.evidence.gather import gather_evidence
 from app.models import Paper, ResearchPlan
 from app.evidence.citation import quote_found
 

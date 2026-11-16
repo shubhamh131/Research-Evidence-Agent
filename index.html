@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f1">
+  <title>Research Evidence Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172421;
+      --muted: #66736f;
+      --line: #dfe5df;
+      --paper: #fff;
+      --canvas: #f5f6f2;
+      --green: #1b6c55;
+      --green-dark: #155641;
+      --green-soft: #e6f2ec;
+      --amber: #8b5a16;
+      --amber-soft: #fbf1dd;
+      --red: #9b4543;
+      --red-soft: #f8e9e6;
+      --blue: #425c85;
+      --blue-soft: #ebf0f8;
+      --shadow: 0 12px 36px rgba(24, 44, 36, .06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .topbar { height: 72px; background: rgba(255,255,255,.9); border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+    .topbar-inner { width: min(1240px, calc(100% - 48px)); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-weight: 700; letter-spacing: -.025em; }
+    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: white; background: var(--green); }
+    .brand small { display: block; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .nav { display: flex; align-items: center; gap: 6px; }
+    .nav-btn { color: var(--muted); border: 0; border-radius: 9px; padding: 9px 15px; background: transparent; font-weight: 600; }
+    .nav-btn:hover { background: #f0f3ef; color: var(--ink); }
+    .nav-btn.active { color: var(--green-dark); background: var(--green-soft); }
+    main { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 54px 0 80px; }
+    .view { display: none; }
+    .view.active { display: block; }
+    .hero { max-width: 780px; margin: 0 auto 30px; text-align: center; }
+    .eyebrow { color: var(--green); display: inline-flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 800; }
+    .eyebrow::before { content: ""; width: 18px; height: 1px; background: currentColor; }
+    h1 { margin: 13px 0 12px; font-size: clamp(34px, 5vw, 54px); line-height: 1.06; letter-spacing: -.055em; font-weight: 650; }
+    .hero p { max-width: 650px; margin: 0 auto; color: var(--muted); font-size: 17px; }
+    .composer { max-width: 850px; margin: 30px auto 0; padding: 20px; border: 1px solid var(--line); border-radius: 17px; background: var(--paper); box-shadow: var(--shadow); text-align: left; }
+    .composer label { display: block; margin: 0 0 10px 2px; color: var(--ink); font-size: 13px; font-weight: 700; }
+    .question-box { display: flex; align-items: end; gap: 12px; padding: 11px; border: 1px solid #cbd5cd; border-radius: 12px; background: #fff; transition: border-color .2s, box-shadow .2s; }
+    .question-box:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(27,108,85,.1); }
+    textarea { width: 100%; min-height: 54px; max-height: 180px; resize: vertical; padding: 8px; color: var(--ink); border: 0; outline: 0; background: transparent; }
+    textarea::placeholder { color: #929c97; }
+    .primary-btn { flex: 0 0 auto; min-height: 44px; padding: 0 17px; border: 0; border-radius: 9px; color: white; background: var(--green); font-weight: 700; transition: background .15s, transform .15s; }
+    .primary-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .primary-btn:disabled { opacity: .62; cursor: wait; transform: none; }
+    .hint { display: flex; justify-content: space-between; gap: 12px; margin: 10px 3px 0; color: var(--muted); font-size: 12px; }
+    .suggestions { max-width: 850px; margin: 18px auto 0; display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+    .suggestion { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; color: #4e5d57; background: rgba(255,255,255,.65); font-size: 12px; }
+    .suggestion:hover { border-color: #9ab9aa; color: var(--green-dark); background: white; }
+    .status { max-width: 850px; margin: 16px auto 0; min-height: 25px; color: var(--muted); text-align: center; font-size: 13px; }
+    .status.error { color: var(--red); }
+    .spinner { display: inline-block; width: 14px; height: 14px; margin: 0 7px -3px 0; border: 2px solid #c9d7ce; border-top-color: var(--green); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .intro-grid { max-width: 850px; margin: 45px auto 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .intro-item { padding-top: 17px; border-top: 1px solid var(--line); }
+    .intro-number { color: var(--green); font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .intro-item h3 { margin: 8px 0 5px; font-size: 14px; }
+    .intro-item p { margin: 0; color: var(--muted); font-size: 13px; }
+    #results { margin-top: 42px; }
+    .results-head { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 18px; }
+    .results-head h2, .section-title { margin: 0; font-size: 22px; letter-spacing: -.035em; }
+    .results-head p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+    .run-time { flex: 0 0 auto; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .summary-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(250px, .8fr); gap: 16px; margin-bottom: 26px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: 0 5px 20px rgba(24,44,36,.035); }
+    .conflict-panel { padding: 22px; }
+    .panel-kicker { color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; font-weight: 800; }
+    .conflict-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+    .conflict-title h3 { margin: 0; font-size: 21px; letter-spacing: -.03em; }
+    .status-pill, .direction-pill, .verify-pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 9px; font-size: 11px; font-weight: 750; text-transform: capitalize; }
+    .supports { color: var(--green-dark); background: var(--green-soft); }
+    .contradicts { color: var(--red); background: var(--red-soft); }
+    .mixed { color: var(--amber); background: var(--amber-soft); }
+    .unclear, .insufficient { color: var(--blue); background: var(--blue-soft); }
+    .agreement { color: var(--green-dark); background: var(--green-soft); }
+    .conflict { color: var(--red); background: var(--red-soft); }
+    .conflict-copy { margin: 0; color: #4e5c56; font-size: 14px; }
+    .factor { display: inline-block; margin-top: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 11px; }
+    .timing-panel { padding: 20px; }
+    .timing-list { display: grid; gap: 8px; margin-top: 13px; }
+    .timing-row { display: flex; justify-content: space-between; gap: 12px; color: #52615a; font-size: 12px; }
+    .timing-row strong { color: var(--ink); font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 30px; }
+    .stat { padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.65); }
+    .stat-value { font-size: 21px; font-weight: 700; letter-spacing: -.04em; }
+    .stat-label { margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .papers-head { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+    .papers-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .paper-list { display: grid; gap: 12px; }
+    .paper-card { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); }
+    .paper-top { padding: 18px 20px 14px; }
+    .paper-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 9px; }
+    .arxiv-id { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+    .arxiv-id:hover { color: var(--green); text-decoration: underline; }
+    .paper-top h3 { margin: 0; font-size: 17px; line-height: 1.35; letter-spacing: -.02em; }
+    .paper-authors { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .finding { margin: 14px 0 0; font-size: 14px; }
+    .finding-label { display: block; margin-bottom: 3px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; font-weight: 800; }
+    .implication { margin-top: 12px; color: #46574f; font-size: 13px; }
+    .quote { margin: 15px 0 0; padding: 12px 14px; border-left: 3px solid #8ab6a0; border-radius: 0 8px 8px 0; color: #43534c; background: #f3f8f4; font-size: 13px; }
+    .quote p { margin: 0; }
+    .quote-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .verify-pill { color: var(--green-dark); background: #e4f1e8; font-size: 10px; text-transform: none; }
+    .verify-pill.unverified { color: var(--amber); background: var(--amber-soft); }
+    .verify-note { color: var(--muted); font-size: 10px; }
+    details.evidence { border-top: 1px solid #edf0ec; }
+    details.evidence summary { padding: 11px 20px; color: #52615a; cursor: pointer; font-size: 12px; font-weight: 650; }
+    .evidence-list { display: grid; gap: 9px; padding: 0 20px 16px; }
+    .evidence-item { padding: 11px 12px; border-radius: 8px; background: #f7f8f5; }
+    .evidence-section { margin-bottom: 4px; color: var(--green); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+    .evidence-item p { margin: 0; color: #56635d; font-size: 12px; }
+    .plan-details { margin-top: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.65); }
+    .plan-details summary { padding: 13px 16px; color: #52615a; cursor: pointer; font-size: 13px; font-weight: 700; }
+    .plan-list { margin: 0; padding: 0 18px 15px 36px; color: #5d6963; font-size: 12px; }
+    .plan-list li { margin: 5px 0; }
+    .eval-hero { margin-bottom: 28px; }
+    .eval-hero h1 { font-size: clamp(32px, 4vw, 46px); }
+    .eval-hero p { margin: 0; color: var(--muted); }
+    .eval-intro { margin-bottom: 20px; }
+    .eval-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .eval-metric { padding: 18px; }
+    .eval-metric .stat-value { font-size: 26px; }
+    .eval-caption { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .eval-section { margin: 27px 0 12px; }
+    .eval-list { display: grid; gap: 9px; }
+    .eval-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+    .eval-item h3 { margin: 0; font-size: 13px; }
+    .eval-item p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+    .eval-result { text-align: right; white-space: nowrap; }
+    .eval-result div { display: flex; justify-content: end; gap: 5px; }
+    .eval-result small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .empty-panel { padding: 34px 22px; border: 1px dashed #cbd5cd; border-radius: 14px; color: var(--muted); background: rgba(255,255,255,.55); text-align: center; }
+    .empty-panel strong { display: block; margin-bottom: 5px; color: var(--ink); }
+    .fine-print { margin: 20px 0 0; color: var(--muted); font-size: 11px; }
+    footer { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 24px; color: #89938d; font-size: 11px; }
+    @media (max-width: 760px) {
+      main { padding-top: 38px; }
+      .summary-grid { grid-template-columns: 1fr; }
+      .stats, .eval-grid { grid-template-columns: repeat(2, 1fr); }
+      .intro-grid { gap: 14px; }
+    }
+    @media (max-width: 540px) {
+      .topbar { height: 62px; }
+      .topbar-inner, main, footer { width: calc(100% - 30px); }
+      .brand { gap: 8px; font-size: 13px; }
+      .brand-mark { width: 31px; height: 31px; }
+      .nav { gap: 0; }
+      .nav-btn { padding: 8px 9px; font-size: 12px; }
+      main { padding-top: 32px; }
+      .hero p { font-size: 15px; }
+      .composer { padding: 13px; }
+      .question-box { display: block; }
+      .question-box textarea { min-height: 76px; }
+      .primary-btn { width: 100%; }
+      .hint { font-size: 10px; }
+      .intro-grid { grid-template-columns: 1fr; margin-top: 30px; }
+      .intro-item { display: grid; grid-template-columns: 30px 1fr; column-gap: 6px; }
+      .intro-number { grid-row: span 2; padding-top: 3px; }
+      .intro-item h3 { margin-top: 0; }
+      .results-head { align-items: start; flex-direction: column; }
+      .stats { gap: 7px; }
+      .stat { padding: 11px; }
+      .stat-value { font-size: 18px; }
+      .paper-top { padding: 15px; }
+      details.evidence summary { padding-left: 15px; }
+      .evidence-list { padding-right: 15px; padding-left: 15px; }
+      .eval-item { grid-template-columns: 1fr; }
+      .eval-result { text-align: left; }
+      .eval-result div { justify-content: start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" aria-label="Research Evidence Agent home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M5 5.5h9.5A4.5 4.5 0 0 1 19 10v8.5H9.5A4.5 4.5 0 0 1 5 14V5.5Z" stroke="currentColor" stroke-width="1.8"/><path d="M8 9h7M8 12h7M8 15h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
+        <span>Research Evidence Agent<small>Evidence desk</small></span>
+      </a>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-btn active" data-view="research">Research</button>
+        <button class="nav-btn" data-view="evaluations">Evaluations</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section id="research-view" class="view active">
+      <div class="hero">
+        <span class="eyebrow">Research, with receipts</span>
+        <h1>Find out what the papers actually say.</h1>
+        <p>Ask a research question. The agent searches arXiv, reads relevant papers, and shows the findings and evidence behind each conclusion.</p>
+        <form id="research-form" class="composer">
+          <label for="question">Your research question</label>
+          <div class="question-box">
+            <textarea id="question" maxlength="1000" required placeholder="For example: Do transformers outperform CNNs on image classification?" aria-describedby="question-hint"></textarea>
+            <button class="primary-btn" id="ask-button" type="submit">Research question <span aria-hidden="true">→</span></button>
+          </div>
+          <div class="hint" id="question-hint"><span>Specific comparisons work best.</span><span><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to run</span></div>
+        </form>
+        <div class="suggestions" aria-label="Suggested questions">
+          <button class="suggestion">Does LoRA match full fine-tuning quality?</button>
+          <button class="suggestion">Is RAG better than fine-tuning for adding knowledge to an LLM?</button>
+          <button class="suggestion">Do transformers outperform CNNs on image classification?</button>
+        </div>
+        <div id="run-status" class="status" role="status" aria-live="polite"></div>
+      </div>
+
+      <div class="intro-grid" id="intro-grid">
+        <div class="intro-item"><span class="intro-number">01</span><h3>Search and screen</h3><p>Find candidate papers and keep the most relevant ones.</p></div>
+        <div class="intro-item"><span class="intro-number">02</span><h3>Read the evidence</h3><p>Extract each paper’s method, setting, and reported result.</p></div>
+        <div class="intro-item"><span class="intro-number">03</span><h3>Compare directions</h3><p>See where findings agree, conflict, or leave too little evidence.</p></div>
+      </div>
+
+      <section id="results" hidden aria-live="polite"></section>
+    </section>
+
+    <section id="evaluations-view" class="view">
+      <div class="eval-hero">
+        <span class="eyebrow">Quality checks</span>
+        <h1>Card prompt evaluation</h1>
+        <p>A fixed set of ten papers checks whether the agent identifies paper findings and labels their direction correctly.</p>
+      </div>
+      <div id="eval-content"><div class="empty-panel"><strong>Loading latest evaluation…</strong></div></div>
+      <p class="fine-print">A verified quote means the words appear in the supplied paper text. It does not verify that the quote is a result or that the paper’s claim is true.</p>
+    </section>
+  </main>
+
+  <footer>Research results are generated from the selected papers and passages. Review the linked source before relying on a conclusion.</footer>
+
+  <script>
+    const form = document.getElementById('research-form');
+    const questionInput = document.getElementById('question');
+    const askButton = document.getElementById('ask-button');
+    const runStatus = document.getElementById('run-status');
+    const results = document.getElementById('results');
+    const introGrid = document.getElementById('intro-grid');
+    const views = {
+      research: document.getElementById('research-view'),
+      evaluations: document.getElementById('evaluations-view')
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[char]);
+    }
+
+    function directionFor(answer) {
+      return ({ yes: 'supports', no: 'contradicts', partly: 'mixed', unclear: 'unclear' })[answer] || 'unclear';
+    }
+
+    function showView(name) {
+      Object.entries(views).forEach(([key, node]) => node.classList.toggle('active', key === name));
+      document.querySelectorAll('.nav-btn').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+      if (name === 'evaluations') loadEvaluation();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.querySelectorAll('.nav-btn').forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
+    document.querySelectorAll('.suggestion').forEach(button => button.addEventListener('click', () => {
+      questionInput.value = button.textContent.trim();
+      questionInput.focus();
+    }));
+
+    questionInput.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') form.requestSubmit();
+    });
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const question = questionInput.value.trim();
+      if (!question) return;
+      askButton.disabled = true;
+      askButton.textContent = 'Researching…';
+      runStatus.className = 'status';
+      runStatus.innerHTML = '<span class="spinner" aria-hidden="true"></span>Searching, screening, and reading papers. This can take a little while.';
+      results.hidden = true;
+      try {
+        const response = await fetch('/api/research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'The research request failed.');
+        renderResearch(data);
+        runStatus.textContent = 'Research complete.';
+        introGrid.hidden = true;
+      } catch (error) {
+        runStatus.className = 'status error';
+        runStatus.textContent = error.message || 'Could not reach the local research server. Start it with python serve.py.';
+      } finally {
+        askButton.disabled = false;
+        askButton.innerHTML = 'Research question <span aria-hidden="true">→</span>';
+      }
+    });
+
+    function renderResearch(data) {
+      const conflict = data.conflict || {};
+      const papers = data.papers || [];
+      const timings = data.timings || {};
+      const verifiedCount = papers.filter(paper => paper.quote_verified).length;
+      const formatTime = seconds => `${Number(seconds || 0).toFixed(1)}s`;
+      const timingRows = Object.entries(timings).map(([name, seconds]) => `<div class="timing-row"><span>${escapeHtml(name)}</span><strong>${formatTime(seconds)}</strong></div>`).join('');
+      const paperMarkup = papers.map((paper, index) => {
+        const card = paper.card || {};
+        const direction = directionFor(card.answer);
+        const quoteMarkup = card.quote ? `<blockquote class="quote"><p>“${escapeHtml(card.quote)}”</p><div class="quote-footer"><span class="verify-pill ${paper.quote_verified ? '' : 'unverified'}">${paper.quote_verified ? '✓ Text verified' : 'Quote not verified'}</span><span class="verify-note">Text match only; it doesn’t validate the finding.</span></div></blockquote>` : '';
+        const evidence = paper.evidence || [];
+        const evidenceMarkup = evidence.length ? `<details class="evidence"><summary>View ${evidence.length} evidence passage${evidence.length === 1 ? '' : 's'}</summary><div class="evidence-list">${evidence.map(item => `<div class="evidence-item"><div class="evidence-section">${escapeHtml(item.section || 'Passage')}</div><p>${escapeHtml(item.text)}</p></div>`).join('')}</div></details>` : '';
+        const authors = (paper.authors || []).slice(0, 4).join(', ');
+        return `<article class="paper-card"><div class="paper-top"><div class="paper-meta"><span class="direction-pill ${direction}">${direction}</span><a class="arxiv-id" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer">arXiv:${escapeHtml((paper.arxiv_id || '').replace(/v\d+$/, ''))} ↗</a><span class="verify-note">Relevance ${escapeHtml(paper.relevance)}/5</span></div><h3>${index + 1}. ${escapeHtml(paper.title)}</h3>${authors ? `<p class="paper-authors">${escapeHtml(authors)}${paper.year ? ` · ${escapeHtml(paper.year)}` : ''}</p>` : ''}<p class="finding"><span class="finding-label">Finding · ${card.has_finding ? 'reported' : 'not established'}</span>${escapeHtml(card.finding || 'The paper does not report a relevant finding for this question.')}</p>${card.implication ? `<p class="implication"><strong>Implication:</strong> ${escapeHtml(card.implication)}</p>` : ''}${quoteMarkup}</div>${evidenceMarkup}</article>`;
+      }).join('');
+      const subquestions = data.plan?.sub_questions || [];
+      const planMarkup = subquestions.length ? `<details class="plan-details"><summary>View the search plan (${subquestions.length} subquestions)</summary><ol class="plan-list">${subquestions.map(item => `<li>${escapeHtml(item.question)} <span class="verify-note">· ${escapeHtml(item.stance)}</span></li>`).join('')}</ol></details>` : '';
+      const conflictText = conflict.explanation || (conflict.status === 'insufficient' ? 'There are not enough verified, directional findings to decide whether the papers conflict.' : 'The available paper findings point in the same direction.');
+      results.innerHTML = `<div class="results-head"><div><h2>Research synthesis</h2><p>${escapeHtml(data.question)}</p></div><span class="run-time">Completed in ${formatTime(data.total_seconds)}</span></div><div class="summary-grid"><section class="panel conflict-panel"><div class="panel-kicker">Across the selected papers</div><div class="conflict-title"><h3>${escapeHtml(conflict.status || 'insufficient')}</h3><span class="status-pill ${escapeHtml(conflict.status || 'insufficient')}">${escapeHtml(conflict.status || 'insufficient')}</span></div><p class="conflict-copy">${escapeHtml(conflictText)}</p><span class="factor">Main factor · ${escapeHtml(conflict.factor || 'unclear')}</span></section><section class="panel timing-panel"><div class="panel-kicker">Pipeline timing</div><div class="timing-list">${timingRows}</div></section></div><div class="stats"><div class="stat"><div class="stat-value">${papers.length}</div><div class="stat-label">Papers reviewed</div></div><div class="stat"><div class="stat-value">${conflict.supporting_ids?.length || 0}</div><div class="stat-label">Supporting</div></div><div class="stat"><div class="stat-value">${conflict.opposing_ids?.length || 0}</div><div class="stat-label">Contradicting</div></div><div class="stat"><div class="stat-value">${verifiedCount}/${papers.length}</div><div class="stat-label">Quotes text-verified</div></div></div><div class="papers-head"><div><h2 class="section-title">Paper cards</h2><p>Each card summarizes one paper. Open a source to inspect the evidence passages.</p></div></div><div class="paper-list">${paperMarkup || '<div class="empty-panel">No paper cards were returned.</div>'}</div>${planMarkup}<p class="fine-print">“Text verified” only means the quote appears in the supplied paper text. It does not confirm that the quote is a study result or that the claim is true.</p>`;
+      results.hidden = false;
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function loadEvaluation() {
+      const root = document.getElementById('eval-content');
+      root.innerHTML = '<div class="empty-panel"><strong>Loading latest evaluation…</strong></div>';
+      try {
+        const response = await fetch('/api/evals/latest');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'No report is available yet.');
+        const metrics = data.metrics || {};
+        const percent = value => `${Math.round(Number(value || 0) * 100)}%`;
+        const cases = (data.items || []).map(item => `<article class="eval-item"><div><h3>${escapeHtml(item.title)}</h3><p>arXiv:${escapeHtml((item.arxiv_id || '').replace(/v\d+$/, ''))} · ${escapeHtml(item.label_note || '')}</p></div><div class="eval-result"><div><span class="direction-pill ${directionFor(item.actual_answer)}">${escapeHtml(item.actual_answer)}</span><span class="direction-pill ${item.correct ? 'supports' : 'contradicts'}">${item.correct ? 'match' : 'mismatch'}</span></div><small>Gold: ${escapeHtml(item.expected_answer)} · Finding ${item.actual_has_finding ? 'yes' : 'no'} / gold ${item.expected_has_finding ? 'yes' : 'no'}</small></div></article>`).join('');
+        root.innerHTML = `<p class="eval-intro">Fixed benchmark · ${escapeHtml(data.item_count)} paper cards</p><div class="eval-grid"><div class="panel eval-metric"><div class="panel-kicker">Finding detection</div><div class="stat-value">${percent(metrics.has_finding_accuracy)}</div><div class="eval-caption">Correct has_finding labels</div></div><div class="panel eval-metric"><div class="panel-kicker">Direction · findings</div><div class="stat-value">${percent(metrics.answer_accuracy_on_findings)}</div><div class="eval-caption">Correct answers on positive examples</div></div><div class="panel eval-metric"><div class="panel-kicker">Direction · all papers</div><div class="stat-value">${percent(metrics.answer_accuracy_all)}</div><div class="eval-caption">Includes papers with no finding</div></div><div class="panel eval-metric"><div class="panel-kicker">Exact card match</div><div class="stat-value">${percent(metrics.exact_accuracy)}</div><div class="eval-caption">Finding and answer both correct</div></div></div><h2 class="section-title eval-section">Case-by-case</h2><div class="eval-list">${cases}</div><p class="fine-print">Small hand-labeled set; use these scores to spot errors, not as a broad estimate of model quality.</p>`;
+      } catch (error) {
+        root.innerHTML = `<div class="empty-panel"><strong>No saved evaluation report</strong>${escapeHtml(error.message)}<br><br>Run <code>python evals/run_card_eval.py</code> from the project root, then reload this tab.</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
