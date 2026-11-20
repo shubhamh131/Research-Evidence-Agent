@@ -9,6 +9,7 @@ pydantic==2.14.2
 pymupdf==2.0
 python-dotenv==1.2.4
 sentence-transformers==6.2.0
+Flask-Limiter
 
 Flask
 gunicorn

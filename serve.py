@@ -2,6 +2,9 @@ import json
 import os
 from pathlib import Path
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 from flask import Flask, jsonify, request, send_from_directory
 
 ROOT = Path(__file__).resolve().parent
@@ -10,6 +13,7 @@ app = Flask(__name__)
 
 # Limit incoming request size
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
+limiter = Limiter(get_remote_address, app=app, default_limits=[])
 
 
 @app.route("/", methods=["GET"])
@@ -33,6 +37,7 @@ def latest_eval():
 
 
 @app.route("/api/research", methods=["POST"])
+@limiter.limit("5  per minute")
 def research():
     payload = request.get_json(silent=True)
 
